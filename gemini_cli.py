@@ -2,25 +2,20 @@ import sublime
 import sublime_plugin
 import subprocess
 import threading
-import os
+import queue
 
 CHAT_VIEW_NAME = "Gemini Chat"
-# PROMPT_PREFIX = "\033[1;32m❯ \033[0m"
 PROMPT_PREFIX = "❯ "
+
+
+input_queues = {}
+
 
 class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI.
     """
     def run(self):
-        # Get the text selected by the user in the current view
-        selected_text = ""
-        # view = sublime.active_window().active_view()
-        # for region in view.sel():
-        #     selected_text += view.substr(region)
-
-        selected_text = "/about"
-
         # Create a new view to display the result
         self.chat_view = self.window.new_file()
         self.chat_view.set_name(CHAT_VIEW_NAME)
@@ -28,17 +23,36 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.chat_view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
         self.chat_view.settings().set("line_numbers", False)
         self.chat_view.settings().set("word_wrap", True)
+        # Context for key bindings
+        self.chat_view.settings().set("gemini_chat_view", True)
 
-        welcome_text = "Type your message below and press Ctrl+Enter to send.\n\n"
+
+        self.input_queue = queue.Queue()
+        input_queues[self.window.id()] = self.input_queue
+
+        welcome_text = "Interactive Gemini CLI\nType your message and press Command+Enter to send.\n\n"
         self.chat_view.run_command("append", {"characters": welcome_text})
         self.chat_view.settings().set("gemini_input_start", self.chat_view.size())
 
-        self.chat_view.run_command("append", {"characters": PROMPT_PREFIX})
-        self.chat_view.run_command("append", {"characters": selected_text})
-        self.chat_view.show(self.chat_view.size())
+        # Initialize first prompt
+        self.chat_view.run_command("chat_prompt", {"text": ""})
 
         sublime.status_message("Calling Gemini CLI, please wait...")
-        self.run_async(selected_text)
+
+
+class GeminiSendInputCommand(sublime_plugin.TextCommand):
+    """
+    Handles the input submission (bound to Ctrl+Enter).
+    """
+    def run(self, edit):
+        input_start = self.view.settings().get("gemini_input_start", 0)
+        input_region = sublime.Region(input_start + len(PROMPT_PREFIX), self.view.size())
+        user_input = self.view.substr(input_region).strip()
+        sublime.status_message("Chat prompt send")
+
+        # Show input text and next prompt
+        self.view.run_command("chat_prompt", {"text": ""})
+        self.run_async(user_input)
 
     def run_async(self, input_text):
         """
@@ -60,62 +74,69 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             process = subprocess.Popen(
                 [gemini_command, input_text],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 shell=False,
-                text=True,
-                encoding="utf-8",
+                universal_newlines=True,
+                bufsize=1,
             )
 
             threading.Thread(target=self.stream_output, args=(process,), daemon=True).start()
 
         except FileNotFoundError:
-            print("gemini-cli command not found\n")
+            print("gemini-cli command not found")
 
         except Exception as e:
-            print(f"An unknown error occurred while executing the command {e}\n")
+            print("gemini-cli exec error %s" % e)
+
 
     def stream_output(self, process):
         """Read stdout line by line and append to the result view."""
-        # Ensure chat_view exists
-        if not hasattr(self, "chat_view") or self.chat_view is None:
-            return
-
-        sublime.set_timeout(
-            lambda: self.chat_view.run_command("chat_send", {"text": ""}),
-            0,
-        )
 
         for line in iter(process.stdout.readline, ""):
             if line:
                 # render in the chat tab with view append
                 sublime.set_timeout(
-                    lambda l=line: self.chat_view.run_command(
+                    lambda l=line: self.view.run_command(
                         "chat_append",
                         {"text": l}
                     ),
                     0,
                 )
-        # Capture any remaining stderr after stdout is done
-        err = process.stderr.read()
-        if err:
-            print(f"read stderr {err}\n")
 
         process.wait()
         # Finalize view with status
-        print("exit chat process\n")
         sublime.status_message("Gemini CLI chat completed")
+
+
+class GeminiChatViewListener(sublime_plugin.EventListener):
+    def on_close(self, view):
+        if view.name() == CHAT_VIEW_NAME:
+            window = view.window()
+            if window is None:
+                window = sublime.active_window()
+
+            if window is not None:
+                window_id = window.id()
+                if window_id in input_queues:
+                    # try:
+                    #     # Use the None to quit the input_queue
+                    #     input_queues[window_id].put(None)
+                    # except Exception:
+                    #     pass
+                    del input_queues[window_id]
+                    print("Cleaned up Gemini CLI for window %s" % window_id)
 
 
 class ChatAppendCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         input_start = self.view.settings().get("gemini_input_start", 0)
-        inserted = self.view.insert(edit, input_start, text)
+        inserted = self.view.insert(edit, input_start, text + "\n")
         new_pos = input_start + inserted
         self.view.settings().set("gemini_input_start", new_pos)
 
 
-class ChatSendCommand(sublime_plugin.TextCommand):
+class ChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         self.view.insert(edit, self.view.size(), "\n\n")
@@ -123,4 +144,7 @@ class ChatSendCommand(sublime_plugin.TextCommand):
 
         # Next input prompt
         self.view.insert(edit, self.view.size(), PROMPT_PREFIX)
-        self.view.show(self.view.size())
+        end = self.view.size()
+        self.view.sel().clear()
+        self.view.sel().add(sublime.Region(end))
+        self.view.show(end)

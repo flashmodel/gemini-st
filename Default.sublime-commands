@@ -1,0 +1,6 @@
+[
+    {
+        "caption": "Gemini: Start Chat",
+        "command": "gemini_cli"
+    }
+]
