@@ -3,17 +3,33 @@ import sublime_plugin
 import subprocess
 import threading
 import queue
+import time
+import json
+import logging
 
 CHAT_VIEW_NAME = "Gemini Chat"
 PROMPT_PREFIX = "❯ "
 
-
 input_queues = {}
+
+def plugin_loaded():
+    logging.basicConfig(format='%(message)s', level=logging.INFO)
+
+
+def get_best_dir(view):
+    folders = view.window().folders()
+    if folders:
+        return folders[0]
+
+    # file_path = view.file_name()
+    # if file_path:
+    #     return os.path.dirname(file_path)
+    return os.path.expanduser("~")
 
 
 class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
-    A Sublime Text plugin command for calling the Gemini CLI.
+    A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
     def run(self):
         # Create a new view to display the result
@@ -30,14 +46,183 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.input_queue = queue.Queue()
         input_queues[self.window.id()] = self.input_queue
 
-        welcome_text = "Interactive Gemini CLI\nType your message and press Command+Enter to send.\n\n"
+        self.chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n\n"})
+
+        # Start the session in a separate thread
+        self.message_id = 0
+        self.session_id = ""
+        self.inited = False
+        threading.Thread(target=self.start_session).start()
+
+    def start_session(self):
+        gemini_command = "gemini"
+        try:
+            # Start the Gemini CLI process with --experimental-acp
+            # Python 3.3 compatible Popen arguments
+            process = subprocess.Popen(
+                [gemini_command, "--experimental-acp"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=False,
+                universal_newlines=True, # Text mode
+                bufsize=1 # Line buffered
+            )
+
+            # Start reader thread
+            threading.Thread(target=self.read_loop, args=(process,), daemon=True).start()
+
+            # Start writer loop (runs in this thread)
+            self.write_loop(process)
+
+        except FileNotFoundError:
+            self.append_error("gemini-cli command not found")
+        except Exception as e:
+            self.append_error("gemini-cli exec error: %s" % e)
+
+    def read_loop(self, process):
+        """Read stdout line by line and append to the result view."""
+        try:
+            for line in iter(process.stdout.readline, ""):
+                if line:
+                    logging.info("Read line: %s" % line)
+                    message = json.loads(line.strip())
+
+                    if "result" in message:
+                        resp = message["result"]
+                        if "agentCapabilities" in resp:
+                            logging.info("Agent initialize success")
+                            self.inited = True
+                        elif "sessionId" in resp:
+                            self.session_id = message["result"]["sessionId"]
+                        elif "stopReason" in resp:
+                            self.chat_view.run_command("chat_append", {"text": "\n\n"})
+
+                    elif message.get("method") == "session/update":
+                        if message["params"]["update"]["sessionUpdate"] == "agent_thought_chunk":
+                            pass
+                        elif message["params"]["update"]["sessionUpdate"] == "agent_message_chunk":
+                            self.chat_view.run_command("chat_append",
+                                {"text": message["params"]["update"]["content"].get("text")})
+                        else:
+                            logging.info("unprocessed agent chat content: %s" % message)
+
+                    else:
+                        logging.info("unprocessed message: %s" % message)
+            logging.info("gemini stdio closed")
+        except Exception as e:
+            logging.error("gemini read stdout error: %s", e)
+        finally:
+            logging.info("gemini cli session ended")
+            sublime.status_message("Gemini CLI session ended")
+
+    def write_loop(self, process):
+        """Wait for input from queue and write to process stdin."""
+
+        self.agent_initialize(process)
+        self.agent_session_new(process)
+
+        # Initialize first prompt
+        welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press Command+Enter to send.\n\n"
         self.chat_view.run_command("append", {"characters": welcome_text})
         self.chat_view.settings().set("gemini_input_start", self.chat_view.size())
 
-        # Initialize first prompt
         self.chat_view.run_command("chat_prompt", {"text": ""})
 
-        sublime.status_message("Calling Gemini CLI, please wait...")
+        while True:
+            user_input = self.input_queue.get()
+            if user_input is None:
+                # exit subprocess
+                process.stdin.close()
+                break
+
+            try:
+                self.agent_session_prompt(process, user_input)
+            except Exception as e:
+                self.append_error("Error writing to process: %s" % e)
+                break
+
+        try:
+            code = process.wait(timeout=3)
+            logging.info("exit gemini cli")
+        except subprocess.TimeoutExpired:
+            process.kill()
+            logging.info("terminate gemini subprocess")
+
+    def agent_initialize(self, process):
+        msg_id = self.send_request(process.stdin, "initialize", {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+                "fs": {"readTextFile": True, "writeTextFile": True}
+            }
+        })
+
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            if self.inited:
+                return msg_id
+            time.sleep(1)
+
+        return None
+
+    def agent_session_new(self, process):
+        msg_id = self.send_request(process.stdin, "session/new", {
+            "cwd": get_best_dir(self.chat_view),
+            "mcpServers": [],
+        })
+
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            if self.session_id:
+                return msg_id
+            time.sleep(1)
+
+        return msg_id
+
+    def agent_session_prompt(self, process, input_text):
+        msg_id = self.send_request(process.stdin, "session/prompt", {
+            "sessionId": self.session_id,
+            "prompt": [
+                {
+                    "type": "text",
+                    "text": input_text
+                }
+            ]
+        })
+
+    def append_error(self, message):
+        sublime.set_timeout(
+            lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
+            0
+        )
+
+    def next_message_id(self):
+        """
+        Calc next message id
+        """
+        self.message_id += 1
+        return self.message_id
+
+    def send_request(self, fd, method, params):
+        """
+        Send jsonrpc request
+        """
+        msg_id = self.next_message_id()
+
+        request = {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "method": method,
+        }
+        if params:
+            request["params"] = params
+
+        logging.info("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
+        # 发送请求
+        request_json = json.dumps(request) + "\n"
+        fd.write(request_json)
+        fd.flush()
+        return msg_id
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
@@ -45,67 +230,29 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
     Handles the input submission (bound to Ctrl+Enter).
     """
     def run(self, edit):
+        window = self.view.window()
+        if not window:
+            return
+
+        window_id = window.id()
+        if window_id not in input_queues:
+            sublime.status_message("No active Gemini session found")
+            return
+
         input_start = self.view.settings().get("gemini_input_start", 0)
         input_region = sublime.Region(input_start + len(PROMPT_PREFIX), self.view.size())
         user_input = self.view.substr(input_region).strip()
-        sublime.status_message("Chat prompt send")
 
-        # Show input text and next prompt
+        if not user_input:
+            return
+
+        sublime.status_message("Sending message...")
+
+        # Show input text and next prompt (simulated local echo/confirmation)
         self.view.run_command("chat_prompt", {"text": ""})
-        self.run_async(user_input)
 
-    def run_async(self, input_text):
-        """
-        Execute the Gemini CLI asynchronously in a background thread.
-        """
-        thread = threading.Thread(target=self.execute_cli, args=(input_text,))
-        thread.start()
-
-    def execute_cli(self, input_text):
-        """
-        The function that actually executes the Gemini CLI command.
-        """
-        # Make sure your Gemini CLI executable is in the system's PATH
-        # If not, provide the full path, e.g., "/usr/local/bin/gemini-cli"
-        gemini_command = "gemini"
-
-        try:
-            # Start the Gemini CLI process and stream its output line by line
-            process = subprocess.Popen(
-                [gemini_command, input_text],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                shell=False,
-                universal_newlines=True,
-                bufsize=1,
-            )
-
-            threading.Thread(target=self.stream_output, args=(process,), daemon=True).start()
-
-        except FileNotFoundError:
-            print("gemini-cli command not found")
-
-        except Exception as e:
-            print("gemini-cli exec error %s" % e)
-
-
-    def stream_output(self, process):
-        """Read stdout line by line and append to the result view."""
-
-        for line in iter(process.stdout.readline, ""):
-            if line:
-                # render in the chat tab with view append
-                sublime.set_timeout(
-                    lambda l=line: self.view.run_command(
-                        "chat_append",
-                        {"text": l}
-                    ),
-                    0,
-                )
-
-        process.wait()
-        # Finalize view with status
-        sublime.status_message("Gemini CLI chat completed")
+        # Send to queue
+        input_queues[window_id].put(user_input)
 
 
 class GeminiChatViewListener(sublime_plugin.EventListener):
@@ -118,20 +265,20 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             if window is not None:
                 window_id = window.id()
                 if window_id in input_queues:
-                    # try:
-                    #     # Use the None to quit the input_queue
-                    #     input_queues[window_id].put(None)
-                    # except Exception:
-                    #     pass
+                    try:
+                        # Use the None to quit the input_queue
+                        input_queues[window_id].put(None)
+                    except Exception:
+                        pass
                     del input_queues[window_id]
-                    print("Cleaned up Gemini CLI for window %s" % window_id)
+                    logging.info("Cleaned up Gemini CLI for window %s" % window_id)
 
 
 class ChatAppendCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         input_start = self.view.settings().get("gemini_input_start", 0)
-        inserted = self.view.insert(edit, input_start, text + "\n")
+        inserted = self.view.insert(edit, input_start, text)
         new_pos = input_start + inserted
         self.view.settings().set("gemini_input_start", new_pos)
 
