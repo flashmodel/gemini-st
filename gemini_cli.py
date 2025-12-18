@@ -13,7 +13,7 @@ import sublime_plugin
 LOG = logging.getLogger(__package__)
 
 CHAT_VIEW_NAME = "Gemini Chat"
-PROMPT_PREFIX = "❯ "
+PROMPT_PREFIX = "\n❯ "
 
 input_queues = {}
 # plugin settings file
@@ -145,6 +145,11 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                         else:
                             LOG.debug("unprocessed agent chat content: %s" % message)
 
+                    elif message.get("method") == "session/request_permission":
+                        LOG.info("Received permission request: %s", message["params"])
+                        self.send_response(process.stdin, message["id"],
+                            {"outcome": {"outcome": "selected", "optionId": "cancel"}})
+
                     else:
                         LOG.info("unprocessed message: %s" % message)
             LOG.info("gemini stdio closed")
@@ -226,6 +231,17 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             ]
         })
 
+    def agent_session_permission(self, process, input_text):
+        msg_id = self.send_request(process.stdin, "session/prompt", {
+            "sessionId": self.session_id,
+            "prompt": [
+                {
+                    "type": "text",
+                    "text": input_text
+                }
+            ]
+        })
+
     def append_error(self, message):
         sublime.set_timeout(
             lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
@@ -254,7 +270,25 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             request["params"] = params
 
         LOG.debug("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
-        # 发送请求
+
+        request_json = json.dumps(request) + "\n"
+        fd.write(request_json)
+        fd.flush()
+        return msg_id
+
+    def send_response(self, fd, msg_id, resp):
+        """
+        Send jsonrpc result
+        """
+        request = {
+            "jsonrpc": "2.0",
+            "id": int(msg_id),
+        }
+        if resp:
+            request["result"] = resp
+
+        LOG.debug("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
+
         request_json = json.dumps(request) + "\n"
         fd.write(request_json)
         fd.flush()
