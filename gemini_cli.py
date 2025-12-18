@@ -6,14 +6,47 @@ import queue
 import time
 import json
 import logging
+import os
+
+# logger by pachage name
+LOG = logging.getLogger(__package__)
 
 CHAT_VIEW_NAME = "Gemini Chat"
 PROMPT_PREFIX = "❯ "
 
 input_queues = {}
+# plugin settings file
+settings = None
+
+
+def get_log_level(level_name):
+    """Maps log level names to logging constants."""
+    return getattr(logging, level_name.upper(), logging.INFO)
+
+
+def update_log_level():
+    """
+    Reads the log_level from settings and reconfigures the logger.
+    """
+    level_name = settings.get("log_level", "INFO")
+    level = get_log_level(level_name)
+    LOG.setLevel(level)
+    if not LOG.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(message)s')
+        handler.setFormatter(formatter)
+        LOG.addHandler(handler)
+
+    LOG.info("gemini_cli level set to %s", level)
+
 
 def plugin_loaded():
-    logging.basicConfig(format='%(message)s', level=logging.INFO)
+    """
+    Called by Sublime Text when the plugin is loaded.
+    """
+    global settings
+    settings = sublime.load_settings("GeminiCLI.sublime-settings")
+    update_log_level()
 
 
 def get_best_dir(view):
@@ -85,13 +118,13 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         try:
             for line in iter(process.stdout.readline, ""):
                 if line:
-                    logging.info("Read line: %s" % line)
+                    LOG.debug("Read line: %s" % line)
                     message = json.loads(line.strip())
 
                     if "result" in message:
                         resp = message["result"]
                         if "agentCapabilities" in resp:
-                            logging.info("Agent initialize success")
+                            LOG.info("Agent initialize success")
                             self.inited = True
                         elif "sessionId" in resp:
                             self.session_id = message["result"]["sessionId"]
@@ -105,15 +138,15 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                             self.chat_view.run_command("chat_append",
                                 {"text": message["params"]["update"]["content"].get("text")})
                         else:
-                            logging.info("unprocessed agent chat content: %s" % message)
+                            LOG.debug("unprocessed agent chat content: %s" % message)
 
                     else:
-                        logging.info("unprocessed message: %s" % message)
-            logging.info("gemini stdio closed")
+                        LOG.info("unprocessed message: %s" % message)
+            LOG.info("gemini stdio closed")
         except Exception as e:
-            logging.error("gemini read stdout error: %s", e)
+            LOG.error("gemini read stdout error: %s", e)
         finally:
-            logging.info("gemini cli session ended")
+            LOG.info("gemini cli session ended")
             sublime.status_message("Gemini CLI session ended")
 
     def write_loop(self, process):
@@ -144,10 +177,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
         try:
             code = process.wait(timeout=3)
-            logging.info("exit gemini cli")
+            LOG.info("exit gemini cli")
         except subprocess.TimeoutExpired:
             process.kill()
-            logging.info("terminate gemini subprocess")
+            LOG.info("terminate gemini subprocess")
 
     def agent_initialize(self, process):
         msg_id = self.send_request(process.stdin, "initialize", {
@@ -217,7 +250,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         if params:
             request["params"] = params
 
-        logging.info("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
+        LOG.debug("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
         # 发送请求
         request_json = json.dumps(request) + "\n"
         fd.write(request_json)
@@ -271,7 +304,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                     except Exception:
                         pass
                     del input_queues[window_id]
-                    logging.info("Cleaned up Gemini CLI for window %s" % window_id)
+                    LOG.info("Cleaned up Gemini CLI for window %s" % window_id)
 
 
 class ChatAppendCommand(sublime_plugin.TextCommand):

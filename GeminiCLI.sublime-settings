@@ -1,0 +1,5 @@
+{
+    // Sets the logging level.
+    // Valid values are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+    "log_level": "DEBUG"
+}
