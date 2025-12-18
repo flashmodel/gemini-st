@@ -1,5 +1,3 @@
-import sublime
-import sublime_plugin
 import subprocess
 import threading
 import queue
@@ -7,6 +5,9 @@ import time
 import json
 import logging
 import os
+
+import sublime
+import sublime_plugin
 
 # logger by pachage name
 LOG = logging.getLogger(__package__)
@@ -85,6 +86,8 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.message_id = 0
         self.session_id = ""
         self.inited = False
+        self.init_event = threading.Event()
+        self.session_event = threading.Event()
         threading.Thread(target=self.start_session).start()
 
     def start_session(self):
@@ -126,8 +129,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                         if "agentCapabilities" in resp:
                             LOG.info("Agent initialize success")
                             self.inited = True
+                            self.init_event.set()
                         elif "sessionId" in resp:
                             self.session_id = message["result"]["sessionId"]
+                            self.session_event.set()
                         elif "stopReason" in resp:
                             self.chat_view.run_command("chat_append", {"text": "\n\n"})
 
@@ -190,13 +195,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             }
         })
 
-        start_time = time.time()
-        while time.time() - start_time < 30:
-            if self.inited:
-                return msg_id
-            time.sleep(1)
-
-        return None
+        # Wait asynchronously for initialization to complete
+        if self.init_event.wait(timeout=30):
+            return msg_id
+        else:
+            LOG.warning("Agent initialization timeout")
+            return None
 
     def agent_session_new(self, process):
         msg_id = self.send_request(process.stdin, "session/new", {
@@ -204,13 +208,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             "mcpServers": [],
         })
 
-        start_time = time.time()
-        while time.time() - start_time < 30:
-            if self.session_id:
-                return msg_id
-            time.sleep(1)
-
-        return msg_id
+        # Wait asynchronously for session creation to complete
+        if self.session_event.wait(timeout=30):
+            return msg_id
+        else:
+            LOG.warning("Session creation timeout")
+            return msg_id
 
     def agent_session_prompt(self, process, input_text):
         msg_id = self.send_request(process.stdin, "session/prompt", {
