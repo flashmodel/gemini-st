@@ -212,7 +212,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 break
 
         try:
-            code = process.wait(timeout=3)
+            code = process.wait(timeout=5)
             LOG.info("exit gemini cli")
         except subprocess.TimeoutExpired:
             process.kill()
@@ -267,6 +267,11 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 }
             ]
         })
+
+    def agent_session_cancel(self, process, session_id):
+        msg_id = self.send_request(process.stdin, "session/cancel",
+            {"sessionId": self.session_id})
+        return msg_id
 
     def append_error(self, message):
         sublime.set_timeout(
@@ -363,7 +368,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                     padding: 6px 12px;
                     margin: 4px;
                     background: #007acc;
-                    color: #ffffff;
+                    color: var(--foreground);
                     text-decoration: none;
                     border-radius: 3px;
                     font-size: 12px;
