@@ -88,6 +88,11 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.inited = False
         self.init_event = threading.Event()
         self.session_event = threading.Event()
+
+        # Permission request state
+        self.pending_permissions = {}  # phantom_id -> {msg_id, process, options}
+        self.phantom_set = sublime.PhantomSet(self.chat_view, "gemini_permissions")
+        self.next_phantom_id = 0
         threading.Thread(target=self.start_session).start()
 
     def start_session(self):
@@ -135,7 +140,11 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                             self.session_event.set()
                         elif "stopReason" in resp:
                             self.chat_view.run_command("chat_append", {"text": "\n\n"})
-
+                    elif "error" in message:
+                        self.chat_view.run_command(
+                            "chat_append",
+                            {"text": message["error"]["message"]+ "\n\n"}
+                        )
                     elif message.get("method") == "session/update":
                         if message["params"]["update"]["sessionUpdate"] == "agent_thought_chunk":
                             pass
@@ -147,9 +156,26 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
                     elif message.get("method") == "session/request_permission":
                         LOG.info("Received permission request: %s", message["params"])
-                        self.send_response(process.stdin, message["id"],
-                            {"outcome": {"outcome": "selected", "optionId": "cancel"}})
+                        # Create phantom with options
+                        options = message["params"].get("options", [])
+                        tool_call = message["params"].get("toolCall", {})
 
+                        # Generate unique phantom ID
+                        phantom_id = self.next_phantom_id
+                        self.next_phantom_id += 1
+
+                        # Store permission request data
+                        self.pending_permissions[phantom_id] = {
+                            "msg_id": message["id"],
+                            "process": process,
+                            "options": options
+                        }
+
+                        # Create and add phantom
+                        sublime.set_timeout(
+                            lambda: self.show_permission_phantom(phantom_id, options, tool_call),
+                            0
+                        )
                     else:
                         LOG.info("unprocessed message: %s" % message)
             LOG.info("gemini stdio closed")
@@ -293,6 +319,114 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         fd.write(request_json)
         fd.flush()
         return msg_id
+
+    def show_permission_phantom(self, phantom_id, options, tool_call):
+        """
+        Display a phantom with permission options
+        """
+        # Get tool call description
+        tool_name = tool_call.get("toolName", "Unknown tool")
+
+        # Create HTML for the phantom
+        html = self.create_permission_phantom_html(phantom_id, options, tool_name)
+
+        # Get current position (before the input prompt)
+        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+        region = sublime.Region(input_start, input_start)
+
+        # Create and add phantom
+        phantom = sublime.Phantom(
+            region,
+            html,
+            sublime.LAYOUT_BLOCK,
+            on_navigate=lambda href: self.handle_permission_selection(href)
+        )
+
+        self.phantom_set.update([phantom])
+
+    def create_permission_phantom_html(self, phantom_id, options, tool_name):
+        """
+        Generate HTML for permission request phantom
+        """
+        # Build buttons HTML
+        buttons_html = ""
+        for option in options:
+            option_id = option.get("optionId", "")
+            label = option.get("label", option_id)
+
+            # Encode the selection data
+            href = "phantom_%d:%s" % (phantom_id, option_id)
+
+            buttons_html += '''
+                <a href="%s" style="
+                    display: inline-block;
+                    padding: 6px 12px;
+                    margin: 4px;
+                    background: #007acc;
+                    color: #ffffff;
+                    text-decoration: none;
+                    border-radius: 3px;
+                    font-size: 12px;
+                ">%s</a>
+            ''' % (href, label)
+
+        html = '''
+            <div style="
+                background: #2d2d30;
+                padding: 12px;
+                margin: 8px 0;
+                border-left: 3px solid #007acc;
+                border-radius: 3px;
+            ">
+                <div style="
+                    color: #cccccc;
+                    font-size: 13px;
+                    margin-bottom: 8px;
+                ">🔐 Permission Required: <strong>%s</strong></div>
+                <div>%s</div>
+            </div>
+        ''' % (tool_name, buttons_html)
+
+        return html
+
+    def handle_permission_selection(self, href):
+        """
+        Handle user clicking on a permission option
+        """
+        try:
+            # Parse the href: "phantom_<id>:<option_id>"
+            parts = href.split(":", 1)
+            if len(parts) != 2 or not parts[0].startswith("phantom_"):
+                return
+
+            phantom_id = int(parts[0].replace("phantom_", ""))
+            option_id = parts[1]
+
+            # Get the pending permission request
+            if phantom_id not in self.pending_permissions:
+                LOG.warning("Permission request %d not found", phantom_id)
+                return
+
+            perm_data = self.pending_permissions[phantom_id]
+
+            # Send response to gemini CLI
+            self.send_response(
+                perm_data["process"].stdin,
+                perm_data["msg_id"],
+                {"outcome": {"outcome": "selected", "optionId": option_id}}
+            )
+
+            # Clear the phantom
+            self.phantom_set.update([])
+
+            # Clean up
+            del self.pending_permissions[phantom_id]
+
+            LOG.info("Permission selected: %s", option_id)
+
+        except Exception as e:
+            LOG.error("Error handling permission selection: %s", e)
+
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
