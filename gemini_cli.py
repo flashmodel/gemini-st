@@ -154,6 +154,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                         else:
                             LOG.debug("unprocessed agent chat content: %s" % message)
 
+                    elif message.get("method") == "fs/read_text_file":
+                        self.handle_fs_read_text_file(process, message)
+
+                    elif message.get("method") == "fs/write_text_file":
+                        self.handle_fs_write_text_file(process, message)
+
                     elif message.get("method") == "session/request_permission":
                         LOG.info("Received permission request: %s", message["params"])
                         # Create phantom with options
@@ -246,6 +252,15 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             LOG.warning("Session creation timeout")
             return msg_id
 
+    def agent_session_load(self, process, session):
+        msg_id = self.send_request(process.stdin, "session/load", {
+            "sessionId": session,
+            "cwd": get_best_dir(self.chat_view),
+            "mcpServers": [],
+        })
+
+        return msg_id
+
     def agent_session_prompt(self, process, input_text):
         msg_id = self.send_request(process.stdin, "session/prompt", {
             "sessionId": self.session_id,
@@ -324,6 +339,79 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         fd.write(request_json)
         fd.flush()
         return msg_id
+
+    def handle_fs_read_text_file(self, process, message):
+        params = message.get("params", {})
+        msg_id = message.get("id")
+        LOG.info("Received fs/read_text_file request: %s", params.get("path"))
+        try:
+            file_path = params.get("path")
+            if not file_path:
+                raise ValueError("Missing 'path' parameter")
+
+            # Read the file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Send success response
+            self.send_response(
+                process.stdin,
+                msg_id,
+                {"content": content}
+            )
+            LOG.info("Successfully read file: %s", file_path)
+        except Exception as e:
+            LOG.error("Error reading file: %s", e)
+            # Send error response
+            error_response = {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {
+                    "code": -32000,
+                    "message": str(e)
+                }
+            }
+            process.stdin.write(json.dumps(error_response) + "\n")
+            process.stdin.flush()
+
+    def handle_fs_write_text_file(self, process, message):
+        params = message.get("params", {})
+        msg_id = message.get("id")
+        LOG.info("Received fs/write_text_file request: %s", params.get("path"))
+        try:
+            file_path = params.get("path")
+            content = params.get("content", "")
+
+            if not file_path:
+                raise ValueError("Missing 'path' parameter")
+
+            # Create parent directories if they don't exist
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+            # Write the file content
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            # Send success response
+            self.send_response(
+                process.stdin,
+                msg_id,
+                {"success": True}
+            )
+            LOG.info("Successfully wrote file: %s", file_path)
+        except Exception as e:
+            LOG.error("Error writing file: %s", e)
+            # Send error response
+            error_response = {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {
+                    "code": -32000,
+                    "message": str(e)
+                }
+            }
+            process.stdin.write(json.dumps(error_response) + "\n")
+            process.stdin.flush()
 
     def show_permission_phantom(self, phantom_id, options, tool_call):
         """
