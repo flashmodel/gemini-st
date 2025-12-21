@@ -1,5 +1,6 @@
 {
     // Sets the logging level.
     // Valid values are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    "log_level": "DEBUG"
+    "log_level": "DEBUG",
+    "api_key": ""
 }

@@ -100,12 +100,22 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         try:
             # Start the Gemini CLI process with --experimental-acp
             # Python 3.3 compatible Popen arguments
+
+            env = None
+            api_key = settings.get("api_key", "").strip()
+            if api_key:
+                env = os.environ.copy()
+                env["GOOGLE_API_KEY"] = api_key
+                LOG.info("Starting Gemini CLI with custom API key from settings")
+
             process = subprocess.Popen(
                 [gemini_command, "--experimental-acp"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
+                env=env,
+                encoding='utf-8',
                 universal_newlines=True, # Text mode
                 bufsize=1 # Line buffered
             )
@@ -418,7 +428,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         Display a phantom with permission options
         """
         # Get tool call description
-        tool_name = tool_call.get("toolName", "Unknown tool")
+        tool_name = tool_call.get("title", "Unknown tool")
 
         # Create HTML for the phantom
         html = self.create_permission_phantom_html(phantom_id, options, tool_name)
@@ -455,9 +465,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                     display: inline-block;
                     padding: 6px 12px;
                     margin: 4px;
+                    margin-right: 8px;
                     background: #007acc;
                     color: var(--foreground);
+                    font-weight: bold;
                     text-decoration: none;
+                    border: 1px solid #007acc;
                     border-radius: 3px;
                     font-size: 12px;
                 ">%s</a>
