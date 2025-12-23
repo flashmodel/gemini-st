@@ -56,12 +56,6 @@ class GeminiClient:
     def stop(self):
         """Stop the client and terminate the process."""
         self.input_queue.put(None)
-        if self.process:
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-            self.process = None
 
     def send_input(self, text):
         """Queue user input to be sent to Gemini."""
@@ -89,7 +83,7 @@ class GeminiClient:
     def _handle_message(self, message):
         """Process a single message from Gemini."""
         if "result" in message:
-            self._handle_result(message["result"])
+            self._handle_result(message["id"], message["result"])
         elif "error" in message:
             self.callbacks['on_error'](message["error"]["message"] + "\n\n")
         elif message.get("method") == "session/update":
@@ -103,7 +97,7 @@ class GeminiClient:
         else:
             LOG.info("unprocessed message: %s" % message)
 
-    def _handle_result(self, result):
+    def _handle_result(self, msg_id, result):
         """Handle result messages."""
         if "agentCapabilities" in result:
             LOG.info("Agent initialize success")
@@ -114,7 +108,7 @@ class GeminiClient:
             self.session_event.set()
             self.callbacks['on_session_ready']()
         elif "stopReason" in result:
-            self.callbacks['on_stop']()
+            self.callbacks['on_stop'](msg_id, result["stopReason"])
 
     def _handle_session_update(self, update):
         """Handle session update messages."""
@@ -123,13 +117,14 @@ class GeminiClient:
             if text:
                 self.callbacks['on_message'](text)
         elif update["sessionUpdate"] == "agent_thought_chunk":
-            pass
+            text = update["content"].get("text")
+            if text:
+                self.callbacks['on_thought'](text)
         else:
             LOG.debug("unprocessed agent chat content: %s" % update)
 
     def _handle_permission_request(self, message):
         """Handle permission request from Gemini."""
-        LOG.info("Received permission request: %s", message["params"])
         self.callbacks['on_permission_request'](
             message["id"],
             message["params"].get("options", []),
@@ -140,7 +135,7 @@ class GeminiClient:
         """Handle file system read request."""
         params = message.get("params", {})
         msg_id = message.get("id")
-        LOG.info("Received fs/read_text_file request: %s", params.get("path"))
+        LOG.debug("Received fs/read_text_file request: %s", params.get("path"))
         try:
             file_path = params.get("path")
             if not file_path:
@@ -157,7 +152,7 @@ class GeminiClient:
         """Handle file system write request."""
         params = message.get("params", {})
         msg_id = message.get("id")
-        LOG.info("Received fs/write_text_file request: %s", params.get("path"))
+        LOG.debug("Received fs/write_text_file request: %s", params.get("path"))
         try:
             file_path = params.get("path")
             content = params.get("content", "")
@@ -187,6 +182,13 @@ class GeminiClient:
             except Exception as e:
                 self.callbacks['on_error']("Error writing to process: %s" % e)
                 break
+
+        if self.process:
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+            self.process = None
 
     def _agent_initialize(self):
         """Initialize the agent."""

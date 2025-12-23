@@ -44,6 +44,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.chat_view.set_name(CHAT_VIEW_NAME)
         self.chat_view.set_scratch(True)
         self.chat_view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
+        self.chat_view.settings().set("draw_minimap", False)
         self.chat_view.settings().set("line_numbers", False)
         self.chat_view.settings().set("word_wrap", True)
         self.chat_view.settings().set("gemini_chat_view", True)
@@ -63,7 +64,8 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 'on_stop': self.on_stop,
                 'on_permission_request': self.on_permission_request,
                 'on_session_ready': self.on_session_ready,
-                'on_exit': self.on_exit
+                'on_exit': self.on_exit,
+                'on_thought': self.on_thought
             },
             cwd=get_best_dir(self.chat_view)
         )
@@ -83,9 +85,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             0
         )
 
-    def on_stop(self):
+    def on_stop(self, msg_id, stop_text):
         """Handle stop signal from Gemini."""
         self.chat_view.run_command("chat_append", {"text": "\n\n"})
+        LOG.info("prompt %s completed: %s", msg_id, stop_text)
 
     def on_session_ready(self):
         """Handle session ready notification."""
@@ -104,6 +107,83 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             lambda: self.show_permission_phantom(phantom_id, options, tool_call),
             0
         )
+
+    def on_thought(self, text):
+        """Handle thought chunk from Gemini."""
+        # Initialize state if needed
+        if not hasattr(self, 'thought_expanded'):
+            self.thought_expanded = False # Default collapsed
+        if not hasattr(self, 'current_thought_text'):
+            self.current_thought_text = ""
+
+        self.current_thought_text = text
+        self.update_thought_phantom()
+
+    def update_thought_phantom(self):
+        """Render the thought phantom based on current state."""
+        if not hasattr(self, 'thought_phantom_set'):
+            self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
+
+        content = self.current_thought_text
+        if not content:
+            return
+
+        # Prepare content for display
+        if self.thought_expanded:
+            # Expanded state
+            icon = "▼"
+            # Basic HTML escaping
+            display_content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+            body_style = "display: block;"
+        else:
+            # Collapsed state
+            icon = "▶"
+            display_content = ""
+            body_style = "display: none;"
+
+        html = f"""
+        <body id="gemini-thoughts">
+            <style>
+                .thought-container {{
+                    background-color: color(var(--background) blend(var(--foreground) 95%));
+                    border: 1px solid var(--accent);
+                    border-radius: 4px;
+                    padding: 0.5rem;
+                    margin: 0.5rem 0;
+                }}
+                .thought-header {{
+                    font-weight: bold;
+                    cursor: pointer;
+                    color: var(--accent);
+                    text-decoration: none;
+                }}
+            </style>
+            <div class="thought-container">
+                <a href="toggle_thought" class="thought-header">{icon} Thought Process</a>
+                <div style="{body_style} margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.9em;">
+                    {display_content}
+                </div>
+            </div>
+        </body>
+        """
+
+        # Position phantom just before the input prompt
+        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+        region = sublime.Region(input_start, input_start)
+
+        phantom = sublime.Phantom(
+            region,
+            html,
+            sublime.LAYOUT_BLOCK,
+            on_navigate=self.handle_thought_navigate
+        )
+        self.thought_phantom_set.update([phantom])
+
+    def handle_thought_navigate(self, href):
+        """Handle navigation events from thought phantom."""
+        if href == "toggle_thought":
+            self.thought_expanded = not getattr(self, 'thought_expanded', False)
+            self.update_thought_phantom()
 
     def on_exit(self):
         """Handle client exit."""
@@ -128,7 +208,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         buttons_html = ""
         for option in options:
             option_id = option.get("optionId", "")
-            label = option.get("label", option_id)
+            label = option.get("name", option_id)
             href = "phantom_%d:%s" % (phantom_id, option_id)
             buttons_html += '''
                 <a href="%s" style="
@@ -181,11 +261,9 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             self.client.send_permission_response(perm_data["msg_id"], option_id)
             self.phantom_set.update([])
             del self.pending_permissions[phantom_id]
-            LOG.info("Permission selected: %s", option_id)
 
         except Exception as e:
             LOG.error("Error handling permission selection: %s", e)
-
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
@@ -216,6 +294,7 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
 
         # Send to client
         gemini_clients[window_id].send_input(user_input)
+        LOG.info("User enter prompt %s", user_input)
 
 
 class GeminiChatViewListener(sublime_plugin.EventListener):
