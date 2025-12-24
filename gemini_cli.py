@@ -335,6 +335,52 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                     del gemini_clients[window_id]
                     LOG.info("Cleaned up Gemini CLI for window %s" % window_id)
 
+    def on_text_command(self, view, command_name, args):
+        """Intercept text commands to protect content before prompt area."""
+        # Only monitor Gemini chat views
+        if not view.settings().get("gemini_chat_view", False) and view.name() != CHAT_VIEW_NAME:
+            return None
+
+        input_start = view.settings().get("gemini_input_start", 0)
+        editable_start = input_start + len(PROMPT_PREFIX)
+
+        # Handle deletion commands - block if they affect content before prompt
+        delete_commands = ("left_delete", "right_delete", "delete_word", "delete_word_backward",
+                          "delete_to_mark", "run_macro_file")
+
+        if command_name in delete_commands:
+            for sel in view.sel():
+                # Block deletion if cursor is in protected area
+                if sel.begin() < editable_start or sel.end() < editable_start:
+                    # Redirect cursor to end and block the command
+                    end_pos = view.size()
+                    view.sel().clear()
+                    view.sel().add(sublime.Region(end_pos))
+                    view.show(end_pos)
+                    LOG.info("Blocked deletion in protected area")
+                    return ("noop", {})
+
+        # Handle insert/modification commands - redirect to end if in protected area
+        mod_commands = ("insert", "paste", "insert_characters", "insert_snippet",
+                       "append", "yank", "paste_and_indent", "clipboard_history_paste")
+
+        if command_name in mod_commands:
+            should_redirect = False
+            for sel in view.sel():
+                if sel.begin() < editable_start:
+                    should_redirect = True
+                    break
+
+            if should_redirect:
+                # Redirect to end of file
+                end_pos = view.size()
+                view.sel().clear()
+                view.sel().add(sublime.Region(end_pos))
+                view.show(end_pos)
+                return ("noop", {})
+
+        return None
+
 
 class ChatAppendCommand(sublime_plugin.TextCommand):
 
