@@ -71,11 +71,17 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         )
         gemini_clients[self.window.id()] = self.client
 
+        # Thought state
+        self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
+        self.current_thought_text = ""
+
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
         self.client.start(settings.get("api_key", "").strip())
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
+        # Signal that the current thought block has ended
+        self.current_thought_text = ""
         self.chat_view.run_command("chat_append", {"text": text})
 
     def on_error(self, message):
@@ -110,80 +116,95 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
-        # Initialize state if needed
-        if not hasattr(self, 'thought_expanded'):
-            self.thought_expanded = False # Default collapsed
-        if not hasattr(self, 'current_thought_text'):
-            self.current_thought_text = ""
+        if not self.current_thought_text:
+            # Start a new thought block
+            self.current_thought_text = text
+            pos = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+            self.thought_blocks.append({
+                "text": text,
+                "expanded": False,
+                "pos": pos
+            })
+            # New line char for the Phantom layout
+            self.chat_view.run_command("chat_append", {"text": "\n"})
+        else:
+            # Append to latest thought block
+            self.current_thought_text += text
+            if self.thought_blocks:
+                self.thought_blocks[-1]["text"] = self.current_thought_text
 
-        self.current_thought_text = text
         self.update_thought_phantom()
 
     def update_thought_phantom(self):
-        """Render the thought phantom based on current state."""
+        """Render all thought phantoms based on current state."""
         if not hasattr(self, 'thought_phantom_set'):
             self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
 
-        content = self.current_thought_text
-        if not content:
-            return
+        phantoms = []
+        for i, block in enumerate(self.thought_blocks):
+            content = block["text"]
+            if not content:
+                continue
 
-        # Prepare content for display
-        if self.thought_expanded:
-            # Expanded state
-            icon = "▼"
-            # Basic HTML escaping
-            display_content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-            body_style = "display: block;"
-        else:
-            # Collapsed state
-            icon = "▶"
-            display_content = ""
-            body_style = "display: none;"
+            # Prepare content for display
+            if block["expanded"]:
+                # Expanded state
+                icon = "▼"
+                # Basic HTML escaping
+                display_content = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+                body_style = "display: block;"
+            else:
+                # Collapsed state
+                icon = "▶"
+                display_content = ""
+                body_style = "display: none;"
 
-        html = f"""
-        <body id="gemini-thoughts">
-            <style>
-                .thought-container {{
-                    background-color: color(var(--background) blend(var(--foreground) 95%));
-                    border: 1px solid var(--accent);
-                    border-radius: 4px;
-                    padding: 0.5rem;
-                    margin: 0.5rem 0;
-                }}
-                .thought-header {{
-                    font-weight: bold;
-                    cursor: pointer;
-                    color: var(--accent);
-                    text-decoration: none;
-                }}
-            </style>
-            <div class="thought-container">
-                <a href="toggle_thought" class="thought-header">{icon} Thought Process</a>
-                <div style="{body_style} margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.9em;">
-                    {display_content}
+            html = f"""
+            <body id="gemini-thoughts-{i}">
+                <style>
+                    .thought-container {{
+                        background-color: color(var(--background) blend(var(--foreground) 95%));
+                        border: 1px solid var(--accent);
+                        border-radius: 4px;
+                        padding: 0.5rem;
+                        margin: 0.5rem 0;
+                    }}
+                    .thought-header {{
+                        font-weight: bold;
+                        cursor: pointer;
+                        color: var(--accent);
+                        text-decoration: none;
+                    }}
+                </style>
+                <div class="thought-container">
+                    <a href="toggle_thought_{i}" class="thought-header">{icon} Thought Process</a>
+                    <div style="{body_style} margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.9em;">
+                        {display_content}
+                    </div>
                 </div>
-            </div>
-        </body>
-        """
+            </body>
+            """
 
-        # Position phantom just before the input prompt
-        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
-        region = sublime.Region(input_start, input_start)
+            region = sublime.Region(block["pos"], block["pos"])
+            phantoms.append(sublime.Phantom(
+                region,
+                html,
+                sublime.LAYOUT_BLOCK,
+                on_navigate=self.handle_thought_navigate
+            ))
 
-        phantom = sublime.Phantom(
-            region,
-            html,
-            sublime.LAYOUT_BLOCK,
-            on_navigate=self.handle_thought_navigate
-        )
-        self.thought_phantom_set.update([phantom])
+        self.thought_phantom_set.update(phantoms)
 
     def handle_thought_navigate(self, href):
-        """Handle navigation events from thought phantom."""
-        if href == "toggle_thought":
-            self.thought_expanded = not getattr(self, 'thought_expanded', False)
-            self.update_thought_phantom()
+        """Handle navigation events from thought phantoms."""
+        if href.startswith("toggle_thought_"):
+            try:
+                index = int(href.replace("toggle_thought_", ""))
+                if 0 <= index < len(self.thought_blocks):
+                    self.thought_blocks[index]["expanded"] = not self.thought_blocks[index]["expanded"]
+                    self.update_thought_phantom()
+            except ValueError:
+                pass
 
     def on_exit(self):
         """Handle client exit."""
