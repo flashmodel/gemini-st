@@ -56,6 +56,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.phantom_set = sublime.PhantomSet(self.chat_view, "gemini_permissions")
         self.next_phantom_id = 0
 
+        # Loading animation state
+        self.loading_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_loading")
+        self.is_loading = False
+
         # Create and start the Gemini client
         self.client = GeminiClient(
             callbacks={
@@ -80,12 +84,16 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
+        # Ensure loading animation is active
+        sublime.set_timeout(self.start_loading_animation, 0)
+
         # Signal that the current thought block has ended
         self.current_thought_text = ""
         self.chat_view.run_command("chat_append", {"text": text})
 
     def on_error(self, message):
         """Handle error messages."""
+        self.stop_loading_animation()
         sublime.set_timeout(
             lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
             0
@@ -93,6 +101,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_stop(self, msg_id, stop_text):
         """Handle stop signal from Gemini."""
+        sublime.set_timeout(self.stop_loading_animation, 0)
         self.chat_view.run_command("chat_append", {"text": "\n\n"})
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
 
@@ -116,6 +125,9 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
+        # Ensure loading animation is active
+        sublime.set_timeout(self.start_loading_animation, 0)
+
         if not self.current_thought_text:
             # Start a new thought block
             self.current_thought_text = text
@@ -164,7 +176,6 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 <style>
                     .thought-container {{
                         background-color: color(var(--background) blend(var(--foreground) 95%));
-                        border: 1px solid var(--accent);
                         border-radius: 4px;
                         padding: 0.5rem;
                         margin: 0.5rem 0;
@@ -177,7 +188,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                     }}
                 </style>
                 <div class="thought-container">
-                    <a href="toggle_thought_{i}" class="thought-header">{icon} Thought Process</a>
+                    <a href="toggle_thought_{i}" class="thought-header">{icon} 💡Thinking Process</a>
                     <div style="{body_style} margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.9em;">
                         {display_content}
                     </div>
@@ -286,6 +297,55 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         except Exception as e:
             LOG.error("Error handling permission selection: %s", e)
 
+    def start_loading_animation(self):
+        """Start the loading animation if not already running."""
+        if not self.is_loading:
+            self.is_loading = True
+            self.update_loading_animation(0)
+
+    def update_loading_animation(self, frame_index):
+        """Update the loading animation frame."""
+        if not self.is_loading:
+            return
+
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        frame = frames[frame_index % len(frames)]
+
+        # Get current input start position (which moves as we stream text)
+        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+
+        region = sublime.Region(input_start, input_start)
+
+        html = f"""
+        <body id="gemini-loading">
+            <style>
+                .loading {{
+                    color: var(--accent);
+                    font-weight: bold;
+                    margin-right: 8px;
+                    font-family: var(--font-mono);
+                }}
+            </style>
+            <div class="loading">{frame}</div>
+        </body>
+        """
+
+        self.loading_phantom_set.update([sublime.Phantom(
+            region,
+            html,
+            sublime.LAYOUT_BLOCK
+        )])
+
+        # Schedule next frame
+        sublime.set_timeout(lambda: self.update_loading_animation(frame_index + 1), 100)
+
+    def stop_loading_animation(self):
+        """Stop the loading animation and clear the phantom."""
+        self.is_loading = False
+        # Clear on next tick to avoid thread issues if called from background
+        sublime.set_timeout(lambda: self.loading_phantom_set.update([]), 0)
+
+
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
     """
@@ -389,6 +449,7 @@ class ChatAppendCommand(sublime_plugin.TextCommand):
         inserted = self.view.insert(edit, input_start, text)
         new_pos = input_start + inserted
         self.view.settings().set("gemini_input_start", new_pos)
+        self.view.show(self.view.size())
 
 
 class ChatPromptCommand(sublime_plugin.TextCommand):
