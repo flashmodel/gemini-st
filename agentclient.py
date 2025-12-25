@@ -7,6 +7,11 @@ import os
 
 LOG = logging.getLogger(__package__)
 
+class ErrorCode:
+    AuthRequired = -32000
+    InternalError = -32603
+
+
 class GeminiClient:
     """
     Handles Gemini CLI protocol communication and message processing.
@@ -146,7 +151,7 @@ class GeminiClient:
             LOG.info("Successfully read file: %s", file_path)
         except Exception as e:
             LOG.error("Error reading file: %s", e)
-            self._send_error_response(msg_id, str(e))
+            self._send_error_response(msg_id, ErrorCode.InternalError, str(e))
 
     def _handle_fs_write(self, message):
         """Handle file system write request."""
@@ -165,7 +170,7 @@ class GeminiClient:
             LOG.info("Successfully wrote file: %s", file_path)
         except Exception as e:
             LOG.error("Error writing file: %s", e)
-            self._send_error_response(msg_id, str(e))
+            self._send_error_response(msg_id, ErrorCode.InternalError, str(e))
 
     def _write_loop(self):
         """Process input queue and send to Gemini."""
@@ -195,7 +200,7 @@ class GeminiClient:
         self._send_request("initialize", {
             "protocolVersion": 1,
             "clientCapabilities": {
-                "fs": {"readTextFile": True, "writeTextFile": True}
+                "fs": {"readTextFile": False, "writeTextFile": False}
             }
         })
         self.init_event.wait(timeout=30)
@@ -240,12 +245,12 @@ class GeminiClient:
         self.process.stdin.write(json.dumps(request) + "\n")
         self.process.stdin.flush()
 
-    def _send_error_response(self, msg_id, error_msg):
+    def _send_error_response(self, msg_id, code, error_msg):
         """Send a JSON-RPC error response."""
         error_response = {
             "jsonrpc": "2.0",
             "id": msg_id,
-            "error": {"code": -32000, "message": error_msg}
+            "error": {"code": code, "message": error_msg}
         }
         self.process.stdin.write(json.dumps(error_response) + "\n")
         self.process.stdin.flush()

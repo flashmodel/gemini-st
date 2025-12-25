@@ -84,8 +84,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
+        # Dispatch to main thread to ensure thread safety for UI updates and state modification
+        sublime.set_timeout(lambda: self._on_message_process(text), 0)
+
+    def _on_message_process(self, text):
         # Ensure loading animation is active
-        sublime.set_timeout(self.start_loading_animation, 0)
+        self.start_loading_animation()
 
         # Signal that the current thought block has ended
         self.current_thought_text = ""
@@ -300,7 +304,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             del self.pending_permissions[phantom_id]
 
             # output user selection markdown text
-            selected_text = f"\n\n- 🔘 {option_id}: {title}\n\n"
+            selected_text = f"\n\n- 🏷️ {option_id}: {title}\n\n"
             self.chat_view.run_command("chat_append", {"text": selected_text})
 
         except Exception as e:
