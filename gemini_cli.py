@@ -129,9 +129,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
+        sublime.set_timeout(lambda: self._on_thought_process(text), 0)
+
+    def _on_thought_process(self, text):
         # Ensure loading animation is active
-        sublime.set_timeout(self.start_loading_animation, 0)
-        sublime.set_timeout(lambda: self.update_think_process(text), 0)
+        self.start_loading_animation()
+        self.update_think_process(text)
 
     def update_think_process(self, text):
         """
