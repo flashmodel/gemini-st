@@ -93,7 +93,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_error(self, message):
         """Handle error messages."""
-        self.stop_loading_animation()
+        sublime.set_timeout(self.stop_loading_animation, 0)
         sublime.set_timeout(
             lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
             0
@@ -127,7 +127,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         """Handle thought chunk from Gemini."""
         # Ensure loading animation is active
         sublime.set_timeout(self.start_loading_animation, 0)
+        sublime.set_timeout(lambda: self.update_think_process(text), 0)
 
+    def update_think_process(self, text):
+        """
+        Refresh current thinking text and all thinking phantom
+        """
         if not self.current_thought_text:
             # Start a new thought block
             self.current_thought_text = text
@@ -231,7 +236,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             region,
             html,
             sublime.LAYOUT_BLOCK,
-            on_navigate=lambda href: self.handle_permission_selection(href)
+            on_navigate=lambda href: self.handle_permission_selection(href, tool_name)
         )
         self.phantom_set.update([phantom])
 
@@ -275,7 +280,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             </div>
         ''' % (tool_name, buttons_html)
 
-    def handle_permission_selection(self, href):
+    def handle_permission_selection(self, href, title):
         """Handle user clicking on a permission option."""
         try:
             parts = href.split(":", 1)
@@ -293,6 +298,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             self.client.send_permission_response(perm_data["msg_id"], option_id)
             self.phantom_set.update([])
             del self.pending_permissions[phantom_id]
+
+            # output user selection markdown text
+            selected_text = f"\n\n- 🔘 {option_id}: {title}\n\n"
+            self.chat_view.run_command("chat_append", {"text": selected_text})
 
         except Exception as e:
             LOG.error("Error handling permission selection: %s", e)
@@ -417,7 +426,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                     view.sel().clear()
                     view.sel().add(sublime.Region(end_pos))
                     view.show(end_pos)
-                    LOG.info("Blocked deletion in protected area")
+                    LOG.debug("Blocked deletion in protected area")
                     return ("noop", {})
 
         # Handle insert/modification commands - redirect to end if in protected area
