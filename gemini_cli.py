@@ -129,7 +129,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     def on_stop(self, msg_id, stop_text):
         """Handle stop signal from Gemini."""
         sublime.set_timeout(self.stop_loading_animation, 0)
-        self.chat_view.run_command("chat_append", {"text": "\n\n"})
+        sublime.set_timeout(lambda: self.chat_view.run_command("chat_append", {"text": "\n\n"}), 0)
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
 
     def on_session_ready(self):
@@ -324,10 +324,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                     color: #cccccc;
                     font-size: 13px;
                     margin-bottom: 8px;
-                ">🔐 Permission Required: <strong>%s</strong>%s</div>
+                ">🔐%s Permission Required: <strong>%s</strong></div>
                 <div>%s</div>
             </div>
-        ''' % (tool_name, edit_file_html, buttons_html)
+        ''' % (edit_file_html, tool_name, buttons_html)
 
     def handle_permission_selection(self, href, title):
         """Handle user clicking on a permission option."""
@@ -465,6 +465,42 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                     del gemini_clients[window_id]
                     LOG.info("Cleaned up Gemini CLI for window %s" % window_id)
 
+    def on_selection_modified(self, view):
+        """
+        Restrict cursor movement to the editable area.
+        Allows selecting history for copy, but prevents placing the caret in history.
+        """
+        if not view.settings().get("gemini_chat_view", False) and view.name() != CHAT_VIEW_NAME:
+            return
+        if not view.settings().has("gemini_input_start"):
+            return
+
+        input_start = view.settings().get("gemini_input_start", 0)
+        editable_start = input_start + len(PROMPT_PREFIX)
+
+        new_sel = []
+        changed = False
+
+        for sel in view.sel():
+            # Only restrict empty regions (cursor carets), allowing user to select history to copy
+            if sel.empty() and sel.begin() < editable_start:
+                new_sel.append(sublime.Region(editable_start))
+                changed = True
+            else:
+                new_sel.append(sel)
+
+        if changed:
+            view.sel().clear()
+            view.sel().add_all(new_sel)
+
+
+    def _redirect_cursor(self, view):
+        """Helper to move cursor to the end of the view."""
+        end_pos = view.size()
+        view.sel().clear()
+        view.sel().add(sublime.Region(end_pos))
+        view.show(end_pos)
+
     def on_text_command(self, view, command_name, args):
         """Intercept text commands to protect content before prompt area."""
         # Only monitor Gemini chat views
@@ -481,13 +517,15 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         if command_name in delete_commands:
             for sel in view.sel():
                 # Block deletion if cursor is in protected area
-                if sel.begin() < editable_start or sel.end() < editable_start:
-                    # Redirect cursor to end and block the command
-                    end_pos = view.size()
-                    view.sel().clear()
-                    view.sel().add(sublime.Region(end_pos))
-                    view.show(end_pos)
-                    LOG.debug("Blocked deletion in protected area")
+                if sel.begin() < editable_start:
+                    self._redirect_cursor(view)
+                    return ("noop", {})
+
+                # Special case for backspace: if at the exact boundary,
+                # it deletes backward into protected area
+                if (command_name in ("left_delete", "delete_word_backward") and
+                    sel.empty() and sel.begin() == editable_start):
+                    self._redirect_cursor(view)
                     return ("noop", {})
 
         # Handle insert/modification commands - redirect to end if in protected area
@@ -502,11 +540,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                     break
 
             if should_redirect:
-                # Redirect to end of file
-                end_pos = view.size()
-                view.sel().clear()
-                view.sel().add(sublime.Region(end_pos))
-                view.show(end_pos)
+                self._redirect_cursor(view)
                 return ("noop", {})
 
         return None

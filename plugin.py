@@ -15,6 +15,7 @@ def update_log_level(settings):
     level_name = settings.get("log_level", "INFO")
     level = get_log_level(level_name)
     LOG.setLevel(level)
+    LOG.propagate = False
     if not LOG.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter('%(message)s')
