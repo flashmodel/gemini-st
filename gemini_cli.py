@@ -59,6 +59,18 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
     def run(self):
+        # Check if a client already exists for this window
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            # Try to find and focus existing chat view
+            for view in self.window.views():
+                if view.settings().get("gemini_chat_view", False):
+                    self.window.focus_view(view)
+                    sublime.status_message("Gemini: Already active in this window.")
+                    return
+            # If client exists but no view found, clean up
+            del gemini_clients[window_id]
+
         # Create a new view to display the result
         self.chat_view = self.window.new_file()
         self.chat_view.set_name(CHAT_VIEW_NAME)
@@ -134,7 +146,8 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_session_ready(self):
         """Handle session ready notification."""
-        welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press Command+Enter to send.\n\n"
+        shortcut = "Command+Enter" if sublime.platform() == "osx" else "Control+Enter"
+        welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
         self.chat_view.run_command("append", {"characters": welcome_text})
         self.chat_view.settings().set("gemini_input_start", self.chat_view.size())
         self.chat_view.run_command("chat_prompt", {"text": ""})
