@@ -54,34 +54,13 @@ def show_diff(window, old_text, new_text, name):
     v.set_read_only(True)
 
 
-class GeminiCliCommand(sublime_plugin.WindowCommand):
+class ChatSession:
     """
-    A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
+    Manages the state and UI for a single Gemini chat session.
     """
-    def run(self):
-        # Check if a client already exists for this window
-        window_id = self.window.id()
-        if window_id in gemini_clients:
-            # Try to find and focus existing chat view
-            for view in self.window.views():
-                if view.settings().get("gemini_chat_view", False):
-                    self.window.focus_view(view)
-                    sublime.status_message("Gemini: Already active in this window.")
-                    return
-            # If client exists but no view found, clean up
-            del gemini_clients[window_id]
-
-        # Create a new view to display the result
-        self.chat_view = self.window.new_file()
-        self.chat_view.set_name(CHAT_VIEW_NAME)
-        self.chat_view.set_scratch(True)
-        self.chat_view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
-        self.chat_view.settings().set("draw_minimap", False)
-        self.chat_view.settings().set("line_numbers", False)
-        self.chat_view.settings().set("word_wrap", True)
-        self.chat_view.settings().set("gemini_chat_view", True)
-
-        self.chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n\n"})
+    def __init__(self, window, view):
+        self.window = window
+        self.chat_view = view
 
         # Permission request state
         self.pending_permissions = {}
@@ -95,7 +74,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         self.loading_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_loading")
         self.is_loading = False
 
-        # Create and start the Gemini client
+        # Thought state
+        self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
+        self.current_thought_text = ""
+        self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
+
+        # Create the Gemini client
         self.client = GeminiClient(
             callbacks={
                 'on_message': self.on_message,
@@ -108,14 +92,19 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             },
             cwd=get_best_dir(self.chat_view)
         )
-        gemini_clients[self.window.id()] = self.client
 
-        # Thought state
-        self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
-        self.current_thought_text = ""
+    def start(self, api_key):
+        self.client.start(api_key)
 
-        settings = sublime.load_settings("GeminiCLI.sublime-settings")
-        self.client.start(settings.get("api_key", "").strip())
+    def stop(self):
+        try:
+            self.client.stop()
+        except Exception:
+            pass
+        self.stop_loading_animation()
+
+    def send_input(self, user_input):
+        self.client.send_input(user_input)
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
@@ -197,9 +186,6 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def update_thought_phantom(self):
         """Render all thought phantoms based on current state."""
-        if not hasattr(self, 'thought_phantom_set'):
-            self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
-
         phantoms = []
         for i, block in enumerate(self.thought_blocks):
             content = block["text"]
@@ -267,7 +253,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
     def on_exit(self):
         """Handle client exit."""
-        sublime.status_message("Gemini CLI session ended")
+        sublime.set_timeout(lambda: sublime.status_message("Gemini CLI session ended"), 0)
 
     def show_permission_phantom(self, phantom_id, options, tool_call):
         """Display a phantom with permission options."""
@@ -292,17 +278,24 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             if filetool["type"] == "diff":
                 tool_id = tool_call["toolCallId"]
                 self.pending_diff[tool_id] = filetool
-
                 edit_file = filetool["path"]
-                edit_old = filetool["oldText"]
-                edit_new = filetool["newText"]
 
         edit_file_html = ""
         if edit_file:
             # Use basename for the label text, tool_id for href to retrieve diff data
             file_name = os.path.basename(edit_file)
             tool_id = tool_call.get("toolCallId", "")
-            edit_file_html = f' <a href="open_diff:{tool_id}" style="color: var(--accent); text-decoration: none; background: color(var(--background) blend(var(--foreground) 90%)); padding: 2px 4px; border-radius: 3px; font-size: 11px; margin-left: 8px;">{file_name}</a>'
+            edit_file_html = f'''
+                <a href="open_diff:{tool_id}" style="
+                    color: var(--accent);
+                    text-decoration: none;
+                    background: color(var(--background) blend(var(--foreground) 90%));
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    margin-left: 8px;
+                ">{file_name}</a>
+            '''
 
         buttons_html = ""
         for option in options:
@@ -325,7 +318,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 ">%s</a>
             ''' % (href, label)
 
-        return '''
+        return f'''
             <div style="
                 background: #2d2d30;
                 padding: 12px;
@@ -337,10 +330,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                     color: #cccccc;
                     font-size: 13px;
                     margin-bottom: 8px;
-                ">🔐%s Permission Required: <strong>%s</strong></div>
-                <div>%s</div>
+                ">🔐{edit_file_html} Permission Required: <strong>{tool_name}</strong></div>
+                <div>{buttons_html}</div>
             </div>
-        ''' % (edit_file_html, tool_name, buttons_html)
+        '''
 
     def handle_permission_selection(self, href, title):
         """Handle user clicking on a permission option."""
@@ -349,12 +342,12 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 tool_id = href[len("open_diff:"):]
                 if tool_id in self.pending_diff:
                     filetool = self.pending_diff[tool_id]
-                    path = filetool["path"]
-                    old_text = filetool.get("oldText", "")
-                    new_text = filetool.get("newText", "")
-                    basename = os.path.basename(path)
-
-                    show_diff(self.window, old_text, new_text, f"Diff: {basename}")
+                    show_diff(
+                        self.window,
+                        filetool.get("oldText", ""),
+                        filetool.get("newText", ""),
+                        f"Diff: {os.path.basename(filetool['path'])}"
+                    )
                 return
 
             parts = href.split(":", 1)
@@ -429,6 +422,43 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         sublime.set_timeout(lambda: self.loading_phantom_set.update([]), 0)
 
 
+class GeminiCliCommand(sublime_plugin.WindowCommand):
+    """
+    A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
+    """
+    def run(self):
+        # Check if a client already exists for this window
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            # Try to find and focus existing chat view
+            for view in self.window.views():
+                if view.settings().get("gemini_chat_view", False):
+                    self.window.focus_view(view)
+                    sublime.status_message("Gemini: Already active in this window.")
+                    return
+            # If client exists but no view found, clean up
+            del gemini_clients[window_id]
+
+        # Create a new view to display the result
+        # Create a new view to display the result
+        chat_view = self.window.new_file()
+        chat_view.set_name(CHAT_VIEW_NAME)
+        chat_view.set_scratch(True)
+        chat_view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
+        chat_view.settings().set("draw_minimap", False)
+        chat_view.settings().set("line_numbers", False)
+        chat_view.settings().set("word_wrap", True)
+        chat_view.settings().set("gemini_chat_view", True)
+
+        chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n\n"})
+
+        # Create and start the ChatSession
+        session = ChatSession(self.window, chat_view)
+        gemini_clients[window_id] = session
+
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        session.start(settings.get("api_key", "").strip())
+
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
     """
@@ -463,6 +493,9 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
 
 class GeminiChatViewListener(sublime_plugin.EventListener):
     def on_close(self, view):
+        """
+        Cleanup session when the chat view is closed.
+        """
         if view.name() == CHAT_VIEW_NAME:
             window = view.window()
             if window is None:
