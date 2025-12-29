@@ -54,6 +54,62 @@ def show_diff(window, old_text, new_text, name):
     v.set_read_only(True)
 
 
+class LoadingAnimation:
+    """
+    Manages a loading animation phantom with start/stop control.
+    """
+    def __init__(self, view):
+        self.view = view
+        self.phantom_set = sublime.PhantomSet(view, "gemini_loading")
+        self.is_loading = False
+        self.frame_index = 0
+        self.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def start(self, region):
+        """Start the loading animation at the specified region."""
+        if not self.is_loading:
+            self.is_loading = True
+            self.frame_index = 0
+            self._update_animation(region)
+
+    def stop(self):
+        """Stop the loading animation and clear the phantom."""
+        self.is_loading = False
+        # Clear on next tick to avoid thread issues if called from background
+        sublime.set_timeout(lambda: self.phantom_set.update([]), 0)
+
+    def _update_animation(self, region):
+        """Update the loading animation frame."""
+        if not self.is_loading:
+            return
+
+        frame = self.frames[self.frame_index % len(self.frames)]
+
+        html = f"""
+        <body id="gemini-loading">
+            <style>
+                .loading {{
+                    color: var(--accent);
+                    font-weight: bold;
+                    margin-right: 8px;
+                    font-family: var(--font-mono);
+                }}
+            </style>
+            <div class="loading">{frame}</div>
+        </body>
+        """
+
+        self.phantom_set.update([sublime.Phantom(
+            region,
+            html,
+            sublime.LAYOUT_BLOCK
+        )])
+
+        # Schedule next frame
+        self.frame_index += 1
+        sublime.set_timeout(lambda: self._update_animation(region), 100)
+
+
 class ChatSession:
     """
     Manages the state and UI for a single Gemini chat session.
@@ -70,9 +126,8 @@ class ChatSession:
         # Permission file edit
         self.pending_diff = {}
 
-        # Loading animation state
-        self.loading_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_loading")
-        self.is_loading = False
+        # Loading animation
+        self.loading_animation = LoadingAnimation(self.chat_view)
 
         # Thought state
         self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
@@ -93,15 +148,22 @@ class ChatSession:
             cwd=get_best_dir(self.chat_view)
         )
 
+    @property
+    def loading_region(self):
+        """Get the region where the loading animation should be displayed."""
+        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+        return sublime.Region(input_start, input_start)
+
     def start(self, api_key):
         self.client.start(api_key)
+        self.loading_animation.start(self.loading_region)
 
     def stop(self):
         try:
             self.client.stop()
         except Exception:
             pass
-        self.stop_loading_animation()
+        self.loading_animation.stop()
 
     def send_input(self, user_input):
         self.client.send_input(user_input)
@@ -113,7 +175,7 @@ class ChatSession:
 
     def _on_message_process(self, text):
         # Ensure loading animation is active
-        self.start_loading_animation()
+        self.loading_animation.start(self.loading_region)
 
         # Signal that the current thought block has ended
         self.current_thought_text = ""
@@ -121,7 +183,7 @@ class ChatSession:
 
     def on_error(self, message):
         """Handle error messages."""
-        sublime.set_timeout(self.stop_loading_animation, 0)
+        sublime.set_timeout(lambda: self.loading_animation.stop(), 0)
         sublime.set_timeout(
             lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
             0
@@ -129,12 +191,13 @@ class ChatSession:
 
     def on_stop(self, msg_id, stop_text):
         """Handle stop signal from Gemini."""
-        sublime.set_timeout(self.stop_loading_animation, 0)
+        sublime.set_timeout(lambda: self.loading_animation.stop(), 0)
         sublime.set_timeout(lambda: self.chat_view.run_command("chat_append", {"text": "\n\n"}), 0)
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
 
     def on_session_ready(self):
         """Handle session ready notification."""
+        self.loading_animation.stop()
         shortcut = "Command+Enter" if sublime.platform() == "osx" else "Control+Enter"
         welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
         self.chat_view.run_command("append", {"characters": welcome_text})
@@ -158,7 +221,7 @@ class ChatSession:
 
     def _on_thought_process(self, text):
         # Ensure loading animation is active
-        self.start_loading_animation()
+        self.loading_animation.start(self.loading_region)
         self.update_think_process(text)
 
     def update_think_process(self, text):
@@ -373,54 +436,6 @@ class ChatSession:
         except Exception as e:
             LOG.error("Error handling permission selection: %s", e)
 
-    def start_loading_animation(self):
-        """Start the loading animation if not already running."""
-        if not self.is_loading:
-            self.is_loading = True
-            self.update_loading_animation(0)
-
-    def update_loading_animation(self, frame_index):
-        """Update the loading animation frame."""
-        if not self.is_loading:
-            return
-
-        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        frame = frames[frame_index % len(frames)]
-
-        # Get current input start position (which moves as we stream text)
-        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
-
-        region = sublime.Region(input_start, input_start)
-
-        html = f"""
-        <body id="gemini-loading">
-            <style>
-                .loading {{
-                    color: var(--accent);
-                    font-weight: bold;
-                    margin-right: 8px;
-                    font-family: var(--font-mono);
-                }}
-            </style>
-            <div class="loading">{frame}</div>
-        </body>
-        """
-
-        self.loading_phantom_set.update([sublime.Phantom(
-            region,
-            html,
-            sublime.LAYOUT_BLOCK
-        )])
-
-        # Schedule next frame
-        sublime.set_timeout(lambda: self.update_loading_animation(frame_index + 1), 100)
-
-    def stop_loading_animation(self):
-        """Stop the loading animation and clear the phantom."""
-        self.is_loading = False
-        # Clear on next tick to avoid thread issues if called from background
-        sublime.set_timeout(lambda: self.loading_phantom_set.update([]), 0)
-
 
 class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
@@ -450,7 +465,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         chat_view.settings().set("word_wrap", True)
         chat_view.settings().set("gemini_chat_view", True)
 
-        chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n\n"})
+        chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
 
         # Create and start the ChatSession
         session = ChatSession(self.window, chat_view)
@@ -558,7 +573,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
         # Handle deletion commands - block if they affect content before prompt
         delete_commands = ("left_delete", "right_delete", "delete_word", "delete_word_backward",
-                          "delete_to_mark", "run_macro_file")
+                          "delete_to_mark", "run_macro_file", "cut",)
 
         if command_name in delete_commands:
             for sel in view.sel():
