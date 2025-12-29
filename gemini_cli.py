@@ -129,6 +129,9 @@ class ChatSession:
         # Loading animation
         self.loading_animation = LoadingAnimation(self.chat_view)
 
+        # Message on chat startup
+        self.initial_msg = ""
+
         # Thought state
         self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
         self.current_thought_text = ""
@@ -147,6 +150,13 @@ class ChatSession:
             },
             cwd=get_best_dir(self.chat_view)
         )
+
+    def set_initial_msg(self, text):
+        """Set or append text to initial_msg."""
+        if self.initial_msg:
+            self.initial_msg += " " + text
+        else:
+            self.initial_msg = text
 
     @property
     def loading_region(self):
@@ -202,7 +212,11 @@ class ChatSession:
         welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
         self.chat_view.run_command("append", {"characters": welcome_text})
         self.chat_view.settings().set("gemini_input_start", self.chat_view.size())
-        self.chat_view.run_command("chat_prompt", {"text": ""})
+
+        if self.initial_msg:
+            self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
+        else:
+            self.chat_view.run_command("chat_prompt", {"text": ""})
 
     def on_permission_request(self, msg_id, options, tool_call):
         """Handle permission request from Gemini."""
@@ -441,7 +455,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
-    def run(self):
+    def run(self, initial_msg=""):
         # Check if a client already exists for this window
         window_id = self.window.id()
         if window_id in gemini_clients:
@@ -469,6 +483,8 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
 
         # Create and start the ChatSession
         session = ChatSession(self.window, chat_view)
+        if initial_msg:
+            session.set_initial_msg(initial_msg)
         gemini_clients[window_id] = session
 
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
@@ -625,7 +641,61 @@ class ChatPromptCommand(sublime_plugin.TextCommand):
 
         # Next input prompt
         self.view.insert(edit, self.view.size(), PROMPT_PREFIX)
+        if text:
+            self.view.insert(edit, self.view.size(), text + " ")
         end = self.view.size()
         self.view.sel().clear()
         self.view.sel().add(sublime.Region(end))
         self.view.show(end)
+
+
+class GeminiAddContextCommand(sublime_plugin.TextCommand):
+    """
+    Command to add current file context to the Gemini chat prompt.
+    """
+    def run(self, edit):
+        view = self.view
+        window = view.window()
+        if not window:
+            return
+
+        file_path = view.file_name()
+        if not file_path:
+            return
+
+        file_name = os.path.basename(file_path)
+
+        # Get line numbers (1-based)
+        sel = view.sel()[0]
+        row_start, _ = view.rowcol(sel.begin())
+        row_end, _ = view.rowcol(sel.end())
+
+        # Format as @file_name#L(A)-(B)
+        # Handle single line selection vs range
+        if row_start == row_end:
+            context_tag = f"@{file_name}#L{row_start + 1}"
+        else:
+            context_tag = f"@{file_name}#L{row_start + 1}-{row_end + 1}"
+
+        # Find or create Gemini chat view
+        chat_view = None
+        for v in window.views():
+            if v.settings().get("gemini_chat_view", False):
+                chat_view = v
+                break
+
+        if not chat_view:
+            # If no chat view, create one and pass the context tag immediately
+            window.run_command("gemini_cli", {"initial_msg": context_tag})
+        else:
+            window.focus_view(chat_view)
+            self._insert_tag(chat_view, context_tag)
+
+    def _insert_tag(self, chat_view, context_tag):
+        # Insert at the end of the view (current prompt area)
+        end_pos = chat_view.size()
+        chat_view.run_command("insert", {"characters": context_tag + " "})
+        # Move cursor to end
+        chat_view.sel().clear()
+        chat_view.sel().add(sublime.Region(chat_view.size()))
+        chat_view.show(chat_view.size())
