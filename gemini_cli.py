@@ -622,6 +622,132 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
         return None
 
+    def on_query_completions(self, view, prefix, locations):
+        """
+        Provide filename completions when typing '@' in the prompt area.
+        Shows three categories: open files, current directory files, and subdirectories.
+        """
+        if not view.settings().get("gemini_chat_view", False):
+            return None
+
+        # Check if in editable area
+        input_start = view.settings().get("gemini_input_start", 0)
+        editable_start = input_start + len(PROMPT_PREFIX)
+        pos = locations[0]
+
+        if pos < editable_start:
+            return None
+
+        # Check if the prefix is preceded by '@'
+        trigger_pos = pos - len(prefix) - 1
+        if trigger_pos < 0 or view.substr(trigger_pos) != '@':
+            return None
+
+        completions = []
+        window = view.window()
+        if not window:
+            return None
+
+        # Get current directory (first workspace folder)
+        current_dir = None
+        folders = window.folders()
+        if folders:
+            current_dir = folders[0]
+
+        # Category 1: Currently open files
+        seen_files = set()
+        for v in window.views():
+            file_path = v.file_name()
+            if not file_path:
+                continue
+
+            # Skip the chat view itself
+            if v.settings().get("gemini_chat_view", False):
+                continue
+
+            file_name = os.path.basename(file_path)
+            if file_name in seen_files:
+                continue
+
+            seen_files.add(file_name)
+
+            # Use relative path as hint if available
+            rel_path = file_name
+            if current_dir and file_path.startswith(current_dir):
+                rel_path = os.path.relpath(file_path, current_dir)
+
+            completions.append(sublime.CompletionItem(
+                file_name,
+                annotation=f"📂 {rel_path}",
+                completion=file_name,
+                kind=sublime.KIND_VARIABLE
+            ))
+
+        # Category 2: Files in current directory
+        if current_dir and os.path.isdir(current_dir):
+            try:
+                for item in os.listdir(current_dir):
+                    item_path = os.path.join(current_dir, item)
+                    if os.path.isfile(item_path) and not item.startswith('.'):
+                        if item not in seen_files:
+                            seen_files.add(item)
+                            completions.append(sublime.CompletionItem(
+                                item,
+                                annotation="📄 current dir",
+                                completion=item,
+                                kind=sublime.KIND_AMBIGUOUS
+                            ))
+            except OSError:
+                pass
+
+        # Category 3: Subdirectories in current directory
+        if current_dir and os.path.isdir(current_dir):
+            try:
+                for item in os.listdir(current_dir):
+                    item_path = os.path.join(current_dir, item)
+                    if os.path.isdir(item_path) and not item.startswith('.'):
+                        completions.append(sublime.CompletionItem(
+                            item + "/",
+                            annotation="📁 subdirectory",
+                            completion=item + "/",
+                            kind=sublime.KIND_NAMESPACE
+                        ))
+            except OSError:
+                pass
+
+        return sublime.CompletionList(completions, flags=sublime.INHIBIT_WORD_COMPLETIONS)
+
+    def on_modified_async(self, view):
+        """
+        Trigger autocompletion immediately when '@' is typed.
+        """
+        if not view.settings().get("gemini_chat_view", False):
+            return
+
+        # Check if the last character typed was '@'
+        sel = view.sel()
+        if not sel:
+            return
+
+        pos = sel[0].begin()
+        if pos <= 0:
+            return
+
+        # Check if in editable area
+        input_start = view.settings().get("gemini_input_start", 0)
+        editable_start = input_start + len(PROMPT_PREFIX)
+        if pos < editable_start:
+            return
+
+        last_char = view.substr(pos - 1)
+        if last_char == '@':
+            # Run auto_complete command
+            view.run_command("auto_complete", {
+                "disable_auto_insert": True,
+                "api_completions_only": True,
+                "next_completion_if_showing": False
+            })
+
 
 class ChatAppendCommand(sublime_plugin.TextCommand):
 
