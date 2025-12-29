@@ -1,0 +1,6 @@
+[
+    {
+        "caption": "Chat with Gemini agent",
+        "command": "gemini_add_file_text"
+    }
+]

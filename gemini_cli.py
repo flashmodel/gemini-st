@@ -699,3 +699,95 @@ class GeminiAddContextCommand(sublime_plugin.TextCommand):
         chat_view.sel().clear()
         chat_view.sel().add(sublime.Region(chat_view.size()))
         chat_view.show(chat_view.size())
+
+
+class GeminiAddFileCommand(sublime_plugin.WindowCommand):
+    """
+    Command to add file reference to the Gemini chat prompt.
+    Works from tab context menu and sidebar.
+    """
+    def run(self, files=None):
+        window = self.window
+        if not window:
+            return
+
+        # Get file path from either files parameter (sidebar) or active view (tab)
+        file_path = None
+        if files and len(files) > 0:
+            file_path = files[0]
+        else:
+            view = window.active_view()
+            if view:
+                file_path = view.file_name()
+
+        if not file_path:
+            return
+
+        file_name = os.path.basename(file_path)
+        context_tag = f"@{file_name}"
+
+        # Find or create Gemini chat view
+        chat_view = None
+        for v in window.views():
+            if v.settings().get("gemini_chat_view", False):
+                chat_view = v
+                break
+
+        if not chat_view:
+            # If no chat view, create one and pass the context tag immediately
+            window.run_command("gemini_cli", {"initial_msg": context_tag})
+        else:
+            window.focus_view(chat_view)
+            self._insert_tag(chat_view, context_tag)
+
+    def _insert_tag(self, chat_view, context_tag):
+        # Insert at the end of the view (current prompt area)
+        chat_view.run_command("insert", {"characters": context_tag + " "})
+        # Move cursor to end
+        chat_view.sel().clear()
+        chat_view.sel().add(sublime.Region(chat_view.size()))
+        chat_view.show(chat_view.size())
+
+
+class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
+    """
+    Command to add file reference to the Gemini chat prompt from tab context menu.
+    """
+    def run(self, edit):
+        view = self.view
+        window = view.window()
+        if not window:
+            return
+
+        file_path = view.file_name()
+        if not file_path:
+            return
+
+        file_name = os.path.basename(file_path)
+        context_tag = f"@{file_name}"
+
+        # Find or create Gemini chat view
+        chat_view = None
+        for v in window.views():
+            if v.settings().get("gemini_chat_view", False):
+                chat_view = v
+                break
+
+        if not chat_view:
+            # If no chat view, create one and pass the context tag immediately
+            window.run_command("gemini_cli", {"initial_msg": context_tag})
+        else:
+            window.focus_view(chat_view)
+            self._insert_tag(chat_view, context_tag)
+
+    def _insert_tag(self, chat_view, context_tag):
+        # Insert at the end of the view (current prompt area)
+        chat_view.run_command("insert", {"characters": context_tag + " "})
+        # Move cursor to end
+        chat_view.sel().clear()
+        chat_view.sel().add(sublime.Region(chat_view.size()))
+        chat_view.show(chat_view.size())
+
+    def is_visible(self):
+        # Hide if current view is the Gemini chat view
+        return not self.view.settings().get("gemini_chat_view", False)

@@ -1,0 +1,7 @@
+[
+    {
+        "caption": "Chat with Gemini agent",
+        "command": "gemini_add_file",
+        "args": {"files": []}
+    }
+]
