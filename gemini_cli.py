@@ -1,8 +1,3 @@
-import subprocess
-import threading
-import queue
-import time
-import json
 import logging
 import os
 import difflib
@@ -70,7 +65,8 @@ class LoadingAnimation:
         if not self.is_loading:
             self.is_loading = True
             self.frame_index = 0
-            self._update_animation(region)
+            self.region_provider = region
+            self._update_animation()
 
     def stop(self):
         """Stop the loading animation and clear the phantom."""
@@ -78,10 +74,16 @@ class LoadingAnimation:
         # Clear on next tick to avoid thread issues if called from background
         sublime.set_timeout(lambda: self.phantom_set.update([]), 0)
 
-    def _update_animation(self, region):
+    def _update_animation(self):
         """Update the loading animation frame."""
         if not self.is_loading:
             return
+
+        # Resolve current region
+        if callable(self.region_provider):
+            region = self.region_provider()
+        else:
+            region = self.region_provider
 
         frame = self.frames[self.frame_index % len(self.frames)]
 
@@ -107,14 +109,14 @@ class LoadingAnimation:
 
         # Schedule next frame
         self.frame_index += 1
-        sublime.set_timeout(lambda: self._update_animation(region), 100)
+        sublime.set_timeout(lambda: self._update_animation(), 100)
 
 
 class ChatSession:
     """
     Manages the state and UI for a single Gemini chat session.
     """
-    def __init__(self, window, view):
+    def __init__(self, window, view, initial_msg="", send_immediate=False):
         self.window = window
         self.chat_view = view
 
@@ -130,12 +132,13 @@ class ChatSession:
         self.loading_animation = LoadingAnimation(self.chat_view)
 
         # Message on chat startup
-        self.initial_msg = ""
+        self.initial_msg = initial_msg
 
         # Thought state
         self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
         self.current_thought_text = ""
         self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
+        self.send_immediate = send_immediate
 
         # Create the Gemini client
         self.client = GeminiClient(
@@ -158,7 +161,6 @@ class ChatSession:
         else:
             self.initial_msg = text
 
-    @property
     def loading_region(self):
         """Get the region where the loading animation should be displayed."""
         input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
@@ -215,6 +217,9 @@ class ChatSession:
 
         if self.initial_msg:
             self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
+            if self.send_immediate:
+                self.send_immediate = False
+                self.chat_view.run_command("gemini_send_input")
         else:
             self.chat_view.run_command("chat_prompt", {"text": ""})
 
@@ -455,7 +460,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
-    def run(self, initial_msg=""):
+    def run(self, initial_msg="", send_immediate=False):
         # Check if a client already exists for this window
         window_id = self.window.id()
         if window_id in gemini_clients:
@@ -482,9 +487,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
 
         # Create and start the ChatSession
-        session = ChatSession(self.window, chat_view)
-        if initial_msg:
-            session.set_initial_msg(initial_msg)
+        session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate)
         gemini_clients[window_id] = session
 
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
@@ -917,3 +920,38 @@ class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
     def is_visible(self):
         # Hide if current view is the Gemini chat view
         return not self.view.settings().get("gemini_chat_view", False)
+
+
+class GeminiPromptHandler(sublime_plugin.TextInputHandler):
+    def name(self):
+        return "gemini_prompt"
+
+    def placeholder(self):
+        return "Enter your prompt for Gemini..."
+
+    def description(self, text):
+        return "Gemini: " + text if text else "Gemini Prompt"
+
+
+class GeminiPromptCommand(sublime_plugin.WindowCommand):
+    def run(self, gemini_prompt):
+        if not gemini_prompt:
+            return
+
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            chat_view = session.chat_view
+            # self.window.focus_view(chat_view)
+            # Use chat_prompt to insert and then send
+            chat_view.run_command("insert", {"characters": gemini_prompt})
+            chat_view.run_command("gemini_send_input")
+        else:
+            # Start a new session and send immediately
+            self.window.run_command("gemini_cli", {
+                "initial_msg": gemini_prompt,
+                "send_immediate": True
+            })
+
+    def input(self, args):
+        return GeminiPromptHandler()

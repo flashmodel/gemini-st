@@ -2,5 +2,9 @@
     {
         "caption": "Gemini: Start Chat",
         "command": "gemini_cli"
+    },
+    {
+        "caption": "Gemini: Prompt",
+        "command": "gemini_prompt"
     }
 ]
