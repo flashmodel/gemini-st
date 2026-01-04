@@ -2,5 +2,6 @@
     // Sets the logging level.
     // Valid values are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
     "log_level": "ERROR",
-    "api_key": ""
+    "api_key": "",
+    "gemini_command": "gemini"
 }

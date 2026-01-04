@@ -27,9 +27,10 @@ class GeminiClient:
         self.init_event = threading.Event()
         self.session_event = threading.Event()
 
-    def start(self, api_key=None):
+    def start(self, api_key=None, gemini_command=None):
         """Start the Gemini CLI process and communication threads."""
-        gemini_command = "gemini"
+        if not gemini_command:
+            gemini_command = "gemini"
         try:
             env = None
             if api_key:

@@ -2,6 +2,11 @@
 
 This package provides an interface to the Gemini CLI directly within Sublime Text.
 
+**Note:** This plugin requires the `gemini` command-line tool to be installed and available in your system's `PATH`.
+You can also set the gemini full path in the settings file with "gemini_command"
+
+![Gemini Chat](screenshot.png)
+
 ## Installation
 
 1.  Open Sublime Text.
@@ -17,8 +22,6 @@ This package provides an interface to the Gemini CLI directly within Sublime Tex
 3.  A new view will open for the Gemini chat.
 4.  Alternatively, you can use the shortcut `Ctrl+Alt+G` (or `Super+Alt+G` on macOS).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
-
-**Note:** This plugin requires the `gemini` command-line tool to be installed and available in your system's `PATH`.
 
 ## Tips
 

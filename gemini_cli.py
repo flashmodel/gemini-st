@@ -166,8 +166,8 @@ class ChatSession:
         input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
         return sublime.Region(input_start, input_start)
 
-    def start(self, api_key):
-        self.client.start(api_key)
+    def start(self, api_key, gemini_command=None):
+        self.client.start(api_key, gemini_command)
         self.loading_animation.start(self.loading_region)
 
     def stop(self):
@@ -491,7 +491,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         gemini_clients[window_id] = session
 
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
-        session.start(settings.get("api_key", "").strip())
+        session.start(settings.get("api_key", "").strip(), settings.get("gemini_command", "gemini"))
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
