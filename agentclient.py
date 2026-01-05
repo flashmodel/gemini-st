@@ -76,7 +76,6 @@ class GeminiClient:
         try:
             for line in iter(self.process.stdout.readline, ""):
                 if line:
-                    LOG.debug("Read line: %s" % line)
                     message = json.loads(line.strip())
                     self._handle_message(message)
             LOG.info("gemini stdio closed")
@@ -232,7 +231,6 @@ class GeminiClient:
         request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
         if params:
             request["params"] = params
-        LOG.debug("Send request:\n%s" % json.dumps(request, ensure_ascii=False, indent=2))
         self.process.stdin.write(json.dumps(request) + "\n")
         self.process.stdin.flush()
         return msg_id
