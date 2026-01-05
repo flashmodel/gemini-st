@@ -65,7 +65,9 @@ class GeminiClient:
 
     def send_input(self, text):
         """Queue user input to be sent to Gemini."""
+        msgid = self._next_message_id()
         self.input_queue.put(text)
+        return msgid
 
     def send_permission_response(self, msg_id, option_id):
         """Send permission selection response."""
@@ -192,7 +194,8 @@ class GeminiClient:
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.process.kill()
+                LOG.error("terminate gemini process %s", self.process.pid)
+                self.process.terminate()
             self.process = None
 
     def _agent_initialize(self):
@@ -211,7 +214,7 @@ class GeminiClient:
             "cwd": self.cwd,
             "mcpServers": [],
         })
-        self.session_event.wait(timeout=30)
+        self.session_event.wait(timeout=10)
 
     def _agent_session_prompt(self, input_text):
         """Send a prompt to the session."""
@@ -220,6 +223,12 @@ class GeminiClient:
             "prompt": [{"type": "text", "text": input_text}]
         })
 
+    def agent_session_cancel(self):
+        msg_id = self._next_message_id()
+        self._send_request("session/cancel",
+            {"sessionId": self.session_id})
+        return msg_id
+
     def _next_message_id(self):
         """Generate next message ID."""
         self.message_id += 1
@@ -227,7 +236,7 @@ class GeminiClient:
 
     def _send_request(self, method, params):
         """Send a JSON-RPC request."""
-        msg_id = self._next_message_id()
+        msg_id = self.message_id
         request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
         if params:
             request["params"] = params

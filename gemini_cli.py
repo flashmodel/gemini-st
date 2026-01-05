@@ -137,6 +137,8 @@ class ChatSession:
         # Thought state
         self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
         self.current_thought_text = ""
+        self.current_thought_id = 0
+        self.current_msgid = 0
         self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
         self.send_immediate = send_immediate
 
@@ -172,13 +174,16 @@ class ChatSession:
 
     def stop(self):
         try:
+            if self.client.inited and self.loading_animation.is_loading:
+                self.client.agent_session_cancel()
             self.client.stop()
         except Exception:
             pass
         self.loading_animation.stop()
 
     def send_input(self, user_input):
-        self.client.send_input(user_input)
+        prompt_id = self.client.send_input(user_input)
+        self.current_msgid = prompt_id
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
@@ -189,8 +194,6 @@ class ChatSession:
         # Ensure loading animation is active
         self.loading_animation.start(self.loading_region)
 
-        # Signal that the current thought block has ended
-        self.current_thought_text = ""
         self.chat_view.run_command("chat_append", {"text": text})
 
     def on_error(self, message):
@@ -247,8 +250,9 @@ class ChatSession:
         """
         Refresh current thinking text and all thinking phantom
         """
-        if not self.current_thought_text:
+        if self.current_msgid != self.current_thought_id:
             # Start a new thought block
+            self.current_thought_id = self.current_msgid
             self.current_thought_text = text
             pos = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
             self.thought_blocks.append({
