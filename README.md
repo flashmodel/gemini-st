@@ -32,6 +32,10 @@ You can right-click in any file, tab, or sidebar item and select **Chat with Gem
 - Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
 - Tagged files will be automatically sent as context to Gemini.
 
+### Set Gemini Working Space
+
+Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
+
 ### prompt from command
 
 Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.

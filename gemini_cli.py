@@ -24,9 +24,16 @@ def plugin_loaded():
 
 
 def get_best_dir(view):
-    folders = view.window().folders()
-    if folders:
-        return folders[0]
+    window = view.window()
+    if window:
+        # Check for explicitly set workspace
+        custom_cwd = window.settings().get("gemini_active_workspace")
+        if custom_cwd and os.path.isdir(custom_cwd):
+            return custom_cwd
+
+        folders = window.folders()
+        if folders:
+            return folders[0]
     return os.path.expanduser("~")
 
 
@@ -959,3 +966,38 @@ class GeminiPromptCommand(sublime_plugin.WindowCommand):
 
     def input(self, args):
         return GeminiPromptHandler()
+
+
+class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
+    """
+    Sets the active workspace for Gemini based on the selected folder in sidebar.
+    """
+    def run(self, files=[], dirs=[]):
+        # Handle both files and dirs arguments, though typically called with dirs from sidebar
+        paths = files + dirs
+        LOG.info("set workspace path %s", paths)
+        if not paths:
+            return
+
+        # Find the first valid directory
+        target_dir = None
+        for path in paths:
+            if os.path.isdir(path):
+                target_dir = path
+                break
+            else:
+                # If it's a file, use its parent directory
+                parent = os.path.dirname(path)
+                if os.path.isdir(parent):
+                    target_dir = parent
+                    break
+
+        if target_dir:
+            self.window.settings().set("gemini_active_workspace", target_dir)
+            sublime.status_message(f"Gemini Dir set to: {target_dir}")
+        else:
+            sublime.status_message("No valid directory for Gemini Workspace")
+
+    def is_visible(self, files=[], dirs=[]):
+        # Show only if at least one item is selected
+        return bool(files or dirs)

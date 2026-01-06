@@ -38,6 +38,7 @@ class GeminiClient:
                 env["GOOGLE_API_KEY"] = api_key
                 LOG.info("Starting Gemini CLI with custom API key from settings")
 
+            LOG.info("Gemini CLI start cwd=%s", self.cwd)
             self.process = subprocess.Popen(
                 [gemini_command, "--experimental-acp"],
                 stdin=subprocess.PIPE,

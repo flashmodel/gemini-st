@@ -3,5 +3,10 @@
         "caption": "Chat with Gemini agent",
         "command": "gemini_add_file",
         "args": {"files": []}
+    },
+    {
+        "caption": "Set Gemini Working Space",
+        "command": "gemini_set_workspace",
+        "args": {"files": [], "dirs": []}
     }
 ]
