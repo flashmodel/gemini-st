@@ -1,12 +1,12 @@
 import logging
 import os
-import difflib
 
 import sublime
 import sublime_plugin
 
 from .agentclient import GeminiClient
 from . import plugin
+from .plugin import show_diff
 
 # logger by pachage name
 LOG = logging.getLogger(__package__)
@@ -35,25 +35,6 @@ def get_best_dir(view):
         if folders:
             return folders[0]
     return ""
-
-
-def show_diff(window, old_text, new_text, name):
-    """Generate and show a unified diff between old and new text."""
-    a = old_text.splitlines(keepends=True)
-    b = new_text.splitlines(keepends=True)
-    diff = difflib.unified_diff(a, b, fromfile="Original", tofile="Modified")
-    difftxt = "".join(diff)
-
-    if not difftxt:
-        sublime.status_message("No changes")
-        return
-
-    v = window.new_file()
-    v.set_name(name)
-    v.set_scratch(True)
-    v.assign_syntax('Packages/Diff/Diff.sublime-syntax')
-    v.run_command('append', {'characters': difftxt, 'disable_tab_translation': True})
-    v.set_read_only(True)
 
 
 class LoadingAnimation:
