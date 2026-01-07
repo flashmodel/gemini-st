@@ -16,9 +16,9 @@ class GeminiClient:
     """
     Handles Gemini CLI protocol communication and message processing.
     """
-    def __init__(self, callbacks, cwd):
+    def __init__(self, callbacks, cwd=None):
         self.callbacks = callbacks
-        self.cwd = cwd
+        self.cwd = cwd if cwd else os.path.expanduser("~")
         self.process = None
         self.input_queue = queue.Queue()
         self.message_id = 0

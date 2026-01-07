@@ -2,6 +2,10 @@
     // Sets the logging level.
     // Valid values are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
     "log_level": "ERROR",
+
+    // Your Google AI Studio API key for Gemini API.
     "api_key": "",
+
+    // Path or command name for the Gemini CLI executable.
     "gemini_command": "gemini"
 }

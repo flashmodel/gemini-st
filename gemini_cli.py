@@ -34,7 +34,7 @@ def get_best_dir(view):
         folders = window.folders()
         if folders:
             return folders[0]
-    return os.path.expanduser("~")
+    return ""
 
 
 def show_diff(window, old_text, new_text, name):
@@ -496,6 +496,9 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         chat_view.settings().set("gemini_chat_view", True)
 
         chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
+        cwd = get_best_dir(chat_view)
+        if cwd:
+            chat_view.run_command("append", {"characters": "cwd: %s\n" % cwd})
 
         # Create and start the ChatSession
         session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate)
