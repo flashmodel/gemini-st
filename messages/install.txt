@@ -1,0 +1,15 @@
+Gemini CLI for Sublime Text
+===========================
+
+Thank you for installing the Gemini CLI plugin!
+
+This plugin provides an interface to the Gemini CLI directly within Sublime Text.
+
+Getting Started:
+- Ensure the `gemini` command-line tool is installed and in your PATH.
+- Authenticate using one of the following methods:
+  - Google Account OAuth: Run `gemini` in your terminal then type `/auth` to login with Google account.
+  - API Key: Obtain an API key from Google AI Studio and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
+- Open the command palette and type "Gemini: Start Chat".
+
+For more information, see https://github.com/flashmodel/gemini-st#gemini-cli-for-sublime-text

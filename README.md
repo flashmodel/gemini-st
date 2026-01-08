@@ -15,6 +15,12 @@ You can also set the gemini full path in the settings file with "gemini_command"
 4.  Copy the `GeminiCLI` directory into this `Packages` directory.
 5.  Restart Sublime Text.
 
+## Gemini Authentication
+
+You need to authenticate before using the plugin. Supported methods:
+- **Google Account OAuth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
+- **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
+
 ## Usage
 
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
