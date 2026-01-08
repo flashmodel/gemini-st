@@ -39,3 +39,7 @@ Right-click on any folder in the sidebar and select **Set Gemini Working Space**
 ### prompt from command
 
 Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
