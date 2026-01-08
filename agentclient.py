@@ -93,7 +93,7 @@ class GeminiClient:
         if "result" in message:
             self._handle_result(message["id"], message["result"])
         elif "error" in message:
-            self.callbacks['on_error'](message["error"]["message"] + "\n\n")
+            self._handle_error(message)
         elif message.get("method") == "session/update":
             self._handle_session_update(message["params"]["update"])
         elif message.get("method") == "fs/read_text_file":
@@ -104,6 +104,18 @@ class GeminiClient:
             self._handle_permission_request(message)
         else:
             LOG.info("unprocessed message: %s" % message)
+
+    def _handle_error(self, message):
+        """Handle error messages."""
+        error = message.get("error", {})
+        err_msg = error.get("message", "Internal error")
+
+        # Try to extract details from data
+        data = error.get("data")
+        if isinstance(data, dict):
+            err_msg = ", ".join([f"{k}:{v}" for k, v in data.items()])
+
+        self.callbacks['on_error'](err_msg + "\n\n")
 
     def _handle_result(self, msg_id, result):
         """Handle result messages."""
