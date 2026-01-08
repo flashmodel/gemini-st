@@ -3,7 +3,8 @@
 This package provides an interface to the Gemini CLI directly within Sublime Text.
 
 **Note:** This plugin requires the `gemini` command-line tool to be installed and available in your system's `PATH`.
-You can also set the gemini full path in the settings file with "gemini_command"
+You may also set the gemini full path in the settings file with "gemini_command". For example, on Windows,
+You can set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`, with "gemini_command": "C:/Users/myname/AppData/Roaming/npm/gemini.cmd"
 
 ![Gemini Chat](screenshot.png)
 
