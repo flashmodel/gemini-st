@@ -4,6 +4,7 @@ import queue
 import json
 import logging
 import os
+import sublime
 
 LOG = logging.getLogger(__package__)
 
@@ -39,16 +40,26 @@ class GeminiClient:
                 LOG.info("Starting Gemini CLI with custom API key from settings")
 
             LOG.info("Gemini CLI start cwd=%s", self.cwd)
+
+            # Prepare subprocess arguments
+            popen_args = {
+                'stdin': subprocess.PIPE,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'shell': False,
+                'env': env,
+                'encoding': 'utf-8',
+                'universal_newlines': True,
+                'bufsize': 1
+            }
+
+            # On Windows, prevent console window from appearing
+            if sublime.platform() == 'windows':
+                popen_args['creationflags'] = subprocess.CREATE_NO_WINDOW
+
             self.process = subprocess.Popen(
                 [gemini_command, "--experimental-acp"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                env=env,
-                encoding='utf-8',
-                universal_newlines=True,
-                bufsize=1
+                **popen_args
             )
 
             # Start reader and writer threads
