@@ -19,7 +19,7 @@ You can set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`, wi
 ## Gemini Authentication
 
 You need to authenticate before using the plugin. Supported methods:
-- **Google Account OAuth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
+- **gemini cli auth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
 - **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
 
 ## Usage

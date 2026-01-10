@@ -16,7 +16,7 @@
                                 "command": "edit_settings",
                                 "args": {
                                     "base_file": "${packages}/GeminiCLI/GeminiCLI.sublime-settings",
-                                    "default": "{\n\t\"api_key\": \"\",\n\t\"gemini_command\": \"gemini\"\n}\n"
+                                    "default": "{\n\t\"gemini_command\": \"gemini\"\n}\n"
                                 },
                                 "caption": "Settings"
                             },
