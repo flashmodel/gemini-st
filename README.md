@@ -27,8 +27,35 @@ You need to authenticate before using the plugin. Supported methods:
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
 2.  Type `Gemini: Start Chat` and press `Enter`.
 3.  A new view will open for the Gemini chat.
-4.  Alternatively, you can use the shortcut `Ctrl+Alt+G` (or `Super+Alt+G` on macOS).
+4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
+
+## Key Bindings
+
+this package does not include a global shortcut by default. You can add key bingding manually:
+
+1.  Go to `Preferences -> Key Bindings`.
+2.  Add the following lines to your user keymap file:
+3.  now you can use the shortcut `Ctrl+Alt+G` (or `Super+Alt+G` on macOS) to start Gemini Chat
+
+```json
+[
+    {
+        "keys": ["ctrl+alt+g"],
+        "command": "gemini_cli",
+        "args": {}
+    },
+    {
+        "keys": ["super+alt+g"],
+        "command": "gemini_cli",
+        "args": {},
+        "context":
+        [
+            { "key": "setting.is_widget", "operand": false }
+        ]
+    }
+]
+```
 
 ## Tips
 

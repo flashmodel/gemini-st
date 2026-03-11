@@ -1,19 +1,5 @@
 [
     {
-        "keys": ["ctrl+alt+g"],
-        "command": "gemini_cli",
-        "args": {}
-    },
-    {
-        "keys": ["super+alt+g"],
-        "command": "gemini_cli",
-        "args": {},
-        "context":
-        [
-            { "key": "setting.is_widget", "operand": false }
-        ]
-    },
-    {
         "keys": ["ctrl+enter"],
         "command": "gemini_send_input",
         "context":
