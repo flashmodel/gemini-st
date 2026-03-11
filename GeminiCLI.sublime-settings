@@ -7,5 +7,8 @@
     "api_key": "",
 
     // Path or command name for the Gemini CLI executable.
-    "gemini_command": "gemini"
+    // If left empty, the plugin will automatically attempt to discover the CLI in common
+    // installation locations (e.g., ~/.local/bin, /opt/homebrew/bin, APPDATA/npm, etc.)
+    // or through the system PATH.
+    "gemini_command": ""
 }

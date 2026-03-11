@@ -2,11 +2,42 @@ import subprocess
 import threading
 import queue
 import json
+import shutil
+import sys
 import logging
 import os
 import sublime
 
 LOG = logging.getLogger(__package__)
+
+def _find_gemini_cli():
+    """Search common default install locations for the gemini CLI."""
+    candidates = []
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        candidates = [
+            os.path.join(appdata, "npm", "gemini.cmd"),
+            os.path.join(appdata, "npm", "gemini"),
+            os.path.join(local_appdata, "Programs", "gemini", "gemini.exe"),
+            os.path.join(local_appdata, "Programs", "gemini", "gemini.cmd"),
+        ]
+    else:
+        home = os.path.expanduser("~")
+        candidates = [
+            os.path.join(home, ".local", "bin", "gemini"),
+            os.path.join(home, ".npm-global", "bin", "gemini"),
+            os.path.join(home, ".yarn", "bin", "gemini"),
+            "/usr/local/bin/gemini",
+            "/opt/homebrew/bin/gemini",
+            "/home/linuxbrew/.linuxbrew/bin/gemini",
+        ]
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            LOG.info(f"Found gemini CLI at default location: {path}")
+            return path
+    return None
+
 
 class ErrorCode:
     AuthRequired = -32000
@@ -31,7 +62,14 @@ class GeminiClient:
     def start(self, api_key=None, gemini_command=None):
         """Start the Gemini CLI process and communication threads."""
         if not gemini_command:
-            gemini_command = "gemini"
+            gemini_command = shutil.which("gemini") or _find_gemini_cli()
+
+        if not gemini_command:
+            self.callbacks['on_error'](
+                "Gemini CLI not found. Please install it first:\n"
+                "npm install -g @google/gemini-cli"
+            )
+            return
         try:
             env = None
             if api_key:
