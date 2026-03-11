@@ -16,7 +16,7 @@
                                 "command": "edit_settings",
                                 "args": {
                                     "base_file": "${packages}/GeminiCLI/GeminiCLI.sublime-settings",
-                                    "default": "{\n\t\"gemini_command\": \"gemini\"\n}\n"
+                                    "default": "{\n\t\"gemini_command\": \"\"\n}\n"
                                 },
                                 "caption": "Settings"
                             },
@@ -27,7 +27,7 @@
                                 "command": "edit_settings",
                                 "args": {
                                     "base_file": "${packages}/GeminiCLI/Default.sublime-keymap",
-                                    "default": "[\n\t{ \"keys\": [\"ctrl+alt+g\"], \"command\": \"gemini_chat\" }\n]\n"
+                                    "default": "[\n\t{ \"keys\": [\"ctrl+alt+g\"], \"command\": \"gemini_cli\" }\n]\n"
                                 },
                                 "caption": "Key Bindings"
                             }

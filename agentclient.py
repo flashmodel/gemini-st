@@ -59,7 +59,7 @@ class GeminiClient:
         self.init_event = threading.Event()
         self.session_event = threading.Event()
 
-    def start(self, api_key=None, gemini_command=None):
+    def start(self, api_key=None, gemini_command=None, extra_env=None):
         """Start the Gemini CLI process and communication threads."""
         if not gemini_command:
             gemini_command = shutil.which("gemini") or _find_gemini_cli()
@@ -70,10 +70,13 @@ class GeminiClient:
                 "npm install -g @google/gemini-cli"
             )
             return
+
         try:
-            env = None
+            env = os.environ.copy()
+            if extra_env:
+                env.update(extra_env)
+
             if api_key:
-                env = os.environ.copy()
                 env["GOOGLE_API_KEY"] = api_key
                 LOG.info("Starting Gemini CLI with custom API key from settings")
 

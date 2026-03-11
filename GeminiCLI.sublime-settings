@@ -6,6 +6,14 @@
     // Your Google AI Studio API key for Gemini API.
     "api_key": "",
 
+    // Extra environment variables to inject into Gemini Process.
+    // Useful for setting google VertexAI
+    // Example: {
+    //   "GOOGLE_CLOUD_PROJECT": "project-id-of-google-cloud",
+    //   "GOOGLE_CLOUD_LOCATION": "global"
+    // }
+    "env": {},
+
     // Path or command name for the Gemini CLI executable.
     // If left empty, the plugin will automatically attempt to discover the CLI in common
     // installation locations (e.g., ~/.local/bin, /opt/homebrew/bin, APPDATA/npm, etc.)
