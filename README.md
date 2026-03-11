@@ -61,7 +61,7 @@ this package does not include a global shortcut by default. You can add key bing
 
 ### Chat with Gemini agent
 
-You can right-click in any file, tab, or sidebar item and select **Chat with Gemini agent**. This will:
+You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
 - Open the Gemini chat view (if not already open).
 - Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
 - Tagged files will be automatically sent as context to Gemini.
