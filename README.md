@@ -30,6 +30,16 @@ You need to authenticate before using the plugin. Supported methods:
 4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
 
+## Gemini Context Interaction and Data Privacy
+
+By default, this plugin **does not** send your entire workspace or file contents to Gemini. Data is only sent to the Google Gemini CLI in the following scenarios:
+
+*   **Chat Messages**: Any text you type directly into the Gemini Chat view.
+*   **Explicit Context (@-mentions)**: When you use the `@filename` syntax (either manually or via the "Gemini: Chat with this file" context menu), the content of the specified file or selected range is sent.
+*   **Tool-driven Context**: If the Gemini agent requests to read a file or list a directory (and you have granted permission if required by the CLI), that information is sent back to the model as part of the interaction.
+
+All communication happens via the `gemini` CLI tool installed on your system, which connects directly to Google's servers using your configured credentials (API key or OAuth).
+
 ## Key Bindings
 
 this package does not include a global shortcut by default. You can add key bingding manually:
