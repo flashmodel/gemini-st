@@ -4,7 +4,7 @@
         "command": "gemini_send_input",
         "context":
         [
-            { "key": "view.settings.gemini_chat_view", "operator": "equal", "operand": true }
+            { "key": "setting.gemini_chat_view", "operator": "equal", "operand": true }
         ]
     },
     {
@@ -12,7 +12,7 @@
         "command": "gemini_send_input",
         "context":
         [
-            { "key": "view.settings.gemini_chat_view", "operator": "equal", "operand": true }
+            { "key": "setting.gemini_chat_view", "operator": "equal", "operand": true }
         ]
     }
 ]
