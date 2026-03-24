@@ -1,14 +1,6 @@
 [
     {
-        "keys": ["ctrl+enter"],
-        "command": "gemini_send_input",
-        "context":
-        [
-            { "key": "setting.gemini_chat_view", "operator": "equal", "operand": true }
-        ]
-    },
-    {
-        "keys": ["super+enter"],
+        "keys": ["primary+enter"],
         "command": "gemini_send_input",
         "context":
         [
