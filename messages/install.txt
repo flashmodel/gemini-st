@@ -10,6 +10,7 @@ Getting Started:
 - Authenticate using one of the following methods:
   - Google Account OAuth: Run `gemini` in your terminal then type `/auth` to login with Google account.
   - API Key: Obtain an API key from Google AI Studio and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
+  - Google Vertex AI: Configure your Google Cloud project and location in the `env` section of your settings.
 - Open the command palette and type "Gemini: Start Chat".
 
 Data Privacy & Context:

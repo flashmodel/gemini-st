@@ -8,7 +8,8 @@
 
     // Extra environment variables to inject into Gemini Process.
     // Useful for setting google VertexAI
-    // Example: {
+    // Example for google cloud:
+    // "env": {
     //   "GOOGLE_CLOUD_PROJECT": "project-id-of-google-cloud",
     //   "GOOGLE_CLOUD_LOCATION": "global"
     // }

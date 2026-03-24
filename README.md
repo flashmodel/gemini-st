@@ -21,6 +21,14 @@ You can set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`, wi
 You need to authenticate before using the plugin. Supported methods:
 - **gemini cli auth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
 - **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
+- **Google Vertex AI**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` section of your settings:
+    ```
+    "env": {
+        "GOOGLE_CLOUD_PROJECT": "your-project-id",
+        "GOOGLE_CLOUD_LOCATION": "us-central1"
+    }
+    ```
+    Ensure you've authenticated with your Google Cloud account via `gcloud auth application-default login`.
 
 ## Usage
 
