@@ -2,13 +2,6 @@
 
 This package provides an agentic interface to the google Gemini CLI directly within Sublime Text.
 
-**Note:** This plugin requires the `gemini` command-line tool. By default, it will automatically discover the `gemini`
-executable in common installation locations. If the tool is installed elsewhere, or you wish to use a specific version, you can
-manually set the path in<br>
-`Preferences -> Package Settings -> GeminiCLI -> Settings` with the `"gemini_command"` key. For example:
-- Windows: `"C:/Users/myname/AppData/Roaming/npm/gemini.cmd"`
-- macOS/Linux: `"/usr/local/bin/gemini"`
-
 ![Gemini Chat](screenshot.png)
 
 ## Prerequisites
@@ -22,12 +15,17 @@ For detailed installation, refer to the [geminicli official docs](https://gemini
 
 > **Note:** The plugin automatically detects CLI installation across multiple environments, including **Homebrew**, **npm-global**, **Yarn**, and common local binary directories. You typically don't need to manually configure environment variables or search paths.
 
-## Installation from Package Control
+## Install GeminiCLI plugin from Package Control
 
 The easiest way to install this plugin is through [Package Control](https://packagecontrol.io/packages/GeminiCLI).
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
 2.  Type `Package Control: Install Package` and press `Enter`.
 3.  Search for `GeminiCLI` and press `Enter`.
+
+The plugin automatically detects gemini-cli. If the command line tool is installed elsewhere, or you wish to use a specific `gemini`version, you can manually set the path in ` Preferences -> Package Settings -> GeminiCLI -> Settings`
+For example set the `"gemini_command"` in settings with:
+- Windows: `"C:/Users/myname/AppData/Roaming/npm/gemini.cmd"`
+- macOS/Linux: `"/usr/local/bin/gemini"`
 
 ## Gemini Authentication
 
