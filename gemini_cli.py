@@ -1,3 +1,4 @@
+import enum
 import logging
 import os
 
@@ -14,6 +15,13 @@ LOG = logging.getLogger(__package__)
 CHAT_VIEW_NAME = "Gemini Chat"
 PROMPT_PREFIX = "\n❯ "
 gemini_clients = {}
+
+GEMINI_APPROVE_MODE = "gemini_approve_mode"
+
+class ApproveMode(enum.Enum):
+    DEFAULT = "default"
+    ALLOW_EDIT = "allow-edit"
+    ACCEPT_ALL = "accept-all"
 
 def plugin_loaded():
     """
@@ -216,6 +224,23 @@ class ChatSession:
 
     def on_permission_request(self, msg_id, options, tool_call):
         """Handle permission request from Gemini."""
+        tool_name = tool_call.get("title", "")
+        if not tool_name:
+            tool_name = tool_call.get("function", "")
+
+        approve_mode = self.window.settings().get(GEMINI_APPROVE_MODE, ApproveMode.ALLOW_EDIT.value)
+
+        always_confirm_tools = ("AskUserQuestion", "ask_user", "ExitPlanMode")
+        if tool_name not in always_confirm_tools and tool_call.get("name") not in always_confirm_tools:
+            if approve_mode == ApproveMode.ACCEPT_ALL.value:
+                if self._auto_approve(msg_id, options, tool_call):
+                    return
+            elif approve_mode == ApproveMode.ALLOW_EDIT.value:
+                risky_tools = ("run_shell_command", "run_command", "Bash")
+                if tool_name not in risky_tools and tool_call.get("name") not in risky_tools:
+                    if self._auto_approve(msg_id, options, tool_call):
+                        return
+
         phantom_id = self.next_phantom_id
         self.next_phantom_id += 1
         self.pending_permissions[phantom_id] = {"msg_id": msg_id}
@@ -224,6 +249,30 @@ class ChatSession:
             lambda: self.show_permission_phantom(phantom_id, options, tool_call),
             0
         )
+
+    def _auto_approve(self, msg_id, options, tool_call):
+        """Attempt to auto-approve the permission."""
+        allow_option = None
+        for option in options:
+            option_id = option.get("optionId", "").lower()
+            if option_id in ("allow", "yes", "accept", "approve", "confirm", "run"):
+                allow_option = option
+                break
+
+        if not allow_option and options:
+            allow_option = options[0]
+
+        if allow_option:
+            option_id = allow_option.get("optionId", "")
+            tool_title = tool_call.get("title", tool_call.get("name", "Unknown Tool"))
+            LOG.info(f"Auto-approving {tool_title} with option {option_id}")
+            self.client.send_permission_response(msg_id, option_id)
+
+            # Output auto-approval markdown text
+            selected_text = f"\n\n- ⚡ Auto-approved {tool_title} with: {option_id}\n\n"
+            self.chat_view.run_command("chat_append", {"text": selected_text})
+            return True
+        return False
 
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
@@ -990,3 +1039,44 @@ class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
     def is_visible(self, files=[], dirs=[]):
         # Show only if at least one item is selected
         return bool(files or dirs)
+
+class GeminiApproveModeInputHandler(sublime_plugin.ListInputHandler):
+    def __init__(self, current_mode=None):
+        self.current_mode = current_mode
+
+    def name(self):
+        return "mode"
+
+    def list_items(self):
+        items = [
+            ("default: ask for confirmation on tool call", ApproveMode.DEFAULT.value),
+            ("allow-edit: auto-approve file edits", ApproveMode.ALLOW_EDIT.value),
+            ("accept-all: accept all without asking", ApproveMode.ACCEPT_ALL.value),
+        ]
+
+        if self.current_mode:
+            for i, item in enumerate(items):
+                if item[1] == self.current_mode:
+                    items.insert(0, items.pop(i))
+                    break
+
+        return items
+
+    def placeholder(self):
+        if self.current_mode:
+            return f" ( {self.current_mode} ); select approve mode on tool call"
+        return "select approve mode on tool call"
+
+
+class GeminiSetApproveModeCommand(sublime_plugin.WindowCommand):
+    """Set permission approve mode for the current Gemini session."""
+    def run(self, mode):
+        self.window.settings().set(GEMINI_APPROVE_MODE, mode)
+        sublime.status_message(f"Approve mode set to: {mode}")
+
+    def input(self, args):
+        if "mode" not in args:
+            current_mode = self.window.settings().get(GEMINI_APPROVE_MODE, ApproveMode.ALLOW_EDIT.value)
+            return GeminiApproveModeInputHandler(current_mode)
+        return None
+

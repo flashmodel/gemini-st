@@ -6,5 +6,9 @@
     {
         "caption": "Gemini: Prompt",
         "command": "gemini_prompt"
+    },
+    {
+        "caption": "Gemini: Approval Mode\ttool permission mode",
+        "command": "gemini_set_approve_mode"
     }
 ]
