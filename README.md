@@ -1,22 +1,33 @@
 # Gemini CLI for Sublime Text
 
-This package provides an interface to the Gemini CLI directly within Sublime Text.
+This package provides an agentic interface to the google Gemini CLI directly within Sublime Text.
 
-**Note:** This plugin requires the `gemini` command-line tool. By default, it will automatically attempt to discover the `gemini`
+**Note:** This plugin requires the `gemini` command-line tool. By default, it will automatically discover the `gemini`
 executable in common installation locations. If the tool is installed elsewhere, or you wish to use a specific version, you can
-manually set the path in `Preferences -> Package Settings -> GeminiCLI -> Settings` using the `"gemini_command"` key. For example:
+manually set the path in<br>
+`Preferences -> Package Settings -> GeminiCLI -> Settings` with the `"gemini_command"` key. For example:
 - Windows: `"C:/Users/myname/AppData/Roaming/npm/gemini.cmd"`
 - macOS/Linux: `"/usr/local/bin/gemini"`
 
 ![Gemini Chat](screenshot.png)
 
-## Installation
+## Prerequisites
+This plugin relies on the Google Gemini CLI. Install the required CLI tool:
 
-1.  Open Sublime Text.
-2.  Go to `Preferences` -> `Browse Packages...`.
-3.  This will open the `Packages` directory.
-4.  Copy the `GeminiCLI` directory into this `Packages` directory.
-5.  Restart Sublime Text.
+```bash
+npm install -g @google/gemini-cli
+```
+
+For detailed installation, refer to the [geminicli official docs](https://geminicli.com/docs/get-started/installation/).
+
+> **Note:** The plugin automatically detects CLI installation across multiple environments, including **Homebrew**, **npm-global**, **Yarn**, and common local binary directories. You typically don't need to manually configure environment variables or search paths.
+
+## Installation from Package Control
+
+The easiest way to install this plugin is through [Package Control](https://packagecontrol.io/packages/GeminiCLI).
+1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
+2.  Type `Package Control: Install Package` and press `Enter`.
+3.  Search for `GeminiCLI` and press `Enter`.
 
 ## Gemini Authentication
 
@@ -32,7 +43,7 @@ You need to authenticate before using the plugin. Supported methods:
     ```
     Ensure you've authenticated with your Google Cloud account via `gcloud auth application-default login`.
 
-## Usage
+## Start Gemini Chat
 
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
 2.  Type `Gemini: Start Chat` and press `Enter`.
@@ -40,15 +51,22 @@ You need to authenticate before using the plugin. Supported methods:
 4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
 
-## Gemini Context Interaction and Data Privacy
+## Using Gemini in Sublime Text
 
-By default, this plugin **does not** send your entire workspace or file contents to Gemini. Data is only sent to the Google Gemini CLI in the following scenarios:
+### Context Menu: Chat with Current File or Selection
 
-*   **Chat Messages**: Any text you type directly into the Gemini Chat view.
-*   **Explicit Context (@-mentions)**: When you use the `@filename` syntax (either manually or via the "Gemini: Chat with this file" context menu), the content of the specified file or selected range is sent.
-*   **Tool-driven Context**: If the Gemini agent requests to read a file or list a directory (and you have granted permission if required by the CLI), that information is sent back to the model as part of the interaction.
+You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
+- Open the Gemini chat view (if not already open).
+- Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
+- Tagged files will be automatically sent as context to Gemini.
 
-All communication happens via the `gemini` CLI tool installed on your system, which connects directly to Google's servers using your configured credentials (API key or OAuth).
+### Sidebar: Set Gemini Working Space
+
+Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
+
+### Quick Prompt Without Chat View
+
+Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
 
 ## Key Bindings
 
@@ -77,22 +95,21 @@ this package does not include a global shortcut by default. You can add key bing
 ]
 ```
 
-## Tips
+## Manual Installation from github
 
-### Chat with Gemini agent
+1. Open Sublime Text and navigate to `Preferences` -> `Browse Packages...`.
+2. This will open the `Packages` directory. clone the repository from [github](https://github.com/flashmodel/gemini-st) into the directory:                                                   │
+3. Rename the repository folder to `GeminiCLI` directory; and Restart Sublime Text.
 
-You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
-- Open the Gemini chat view (if not already open).
-- Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
-- Tagged files will be automatically sent as context to Gemini.
+## Gemini Context Interaction and Data Privacy
 
-### Set Gemini Working Space
+By default, this plugin **does not** send your entire workspace or file contents to Gemini. Data is only sent to the Google Gemini CLI in the following scenarios:
 
-Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
+*   **Chat Messages**: Any text you type directly into the Gemini Chat view.
+*   **Explicit Context (@-mentions)**: When you use the `@filename` syntax (either manually or via the "Gemini: Chat with this file" context menu), the content of the specified file or selected range is sent.
+*   **Tool-driven Context**: If the Gemini agent requests to read a file or list a directory (and you have granted permission if required by the CLI), that information is sent back to the model as part of the interaction.
 
-### prompt from command
-
-Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
+All communication happens via the `gemini` CLI tool installed on your system, which connects directly to Google's servers using your configured credentials (API key or OAuth).
 
 ## License
 
