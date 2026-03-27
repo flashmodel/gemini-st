@@ -261,6 +261,9 @@ class ChatSession:
 
     def _output_tool_call_text(self, tool_call):
         """Format and append tool call text to the chat view."""
+        # Ensure loading animation is active
+        self.loading_animation.start(self.loading_region)
+
         tool_id = tool_call.get("toolCallId")
         if tool_id and tool_id in self.shown_tool_calls:
             return
@@ -269,7 +272,7 @@ class ChatSession:
 
         tool_kind = tool_call.get("kind", "tool")
         tool_title = tool_call.get("title", tool_call.get("name", ""))
-        
+
         if tool_kind == "execute" and tool_title:
             # Remove content within [ ] from the execution title
             tool_title = re.sub(r'\s*\[.*?\]', '', tool_title)
@@ -282,14 +285,20 @@ class ChatSession:
         view = self.chat_view
         prefix = ""
         insert_pos = view.settings().get("gemini_input_start", 0)
-        
+
         if insert_pos > 0:
-            last_char = view.substr(sublime.Region(insert_pos - 1, insert_pos))
+            # Read up to 2 characters before the insertion point
+            start_check = max(0, insert_pos - 2)
+            last_chars = view.substr(sublime.Region(start_check, insert_pos))
+            last_char = last_chars[-1] if last_chars else ""
+
             if last_char != "\n":
                 prefix = "\n"
+
             if not self.last_is_tool:
-                # Ensure a blank line if previous wasn't a tool
-                prefix += "\n"
+                if last_chars != "\n\n":
+                    # Ensure a blank line if previous wasn't a tool and no blank line exists
+                    prefix += "\n"
 
         selected_text = f"{prefix}{formatted_title}\n"
         view.run_command("chat_append", {"text": selected_text})
