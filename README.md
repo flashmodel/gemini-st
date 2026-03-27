@@ -68,6 +68,14 @@ Right-click on any folder in the sidebar and select **Set Gemini Working Space**
 
 Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
 
+### Gemini Approval Mode
+
+Gemini CLI performs various actions (tools) like reading files, searching the web, or executing commands. You can control how much manual approval is required for these actions via the command palette: `Gemini: Approval Mode`
+
+  - Default: Prompts for your approval by default.
+  - Allow Edit: Automatically approves "safe" read/edit operations; still prompts for "risky" commands.
+  - Accept All: Automatically approves all tool calls, including shell command execution.
+
 ## Key Bindings
 
 this package does not include a global shortcut by default. You can add key bingding manually:
