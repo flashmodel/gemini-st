@@ -119,6 +119,7 @@ class ChatSession:
 
         # Permission request state
         self.pending_permissions = {}
+        self.shown_tool_calls = set()
         self.phantom_set = sublime.PhantomSet(self.chat_view, "gemini_permissions")
         self.next_phantom_id = 0
 
@@ -138,6 +139,7 @@ class ChatSession:
         self.current_msgid = 0
         self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
         self.send_immediate = send_immediate
+        self.last_is_tool = True
 
         # Create the Gemini client
         self.client = GeminiClient(
@@ -148,7 +150,8 @@ class ChatSession:
                 'on_permission_request': self.on_permission_request,
                 'on_session_ready': self.on_session_ready,
                 'on_exit': self.on_exit,
-                'on_thought': self.on_thought
+                'on_thought': self.on_thought,
+                'on_tool_call': self.on_tool_call
             },
             cwd=get_best_dir(self.chat_view)
         )
@@ -192,19 +195,23 @@ class ChatSession:
         self.loading_animation.start(self.loading_region)
 
         self.chat_view.run_command("chat_append", {"text": text})
+        self.last_is_tool = False
 
     def on_error(self, message):
         """Handle error messages."""
-        sublime.set_timeout(lambda: self.loading_animation.stop(), 0)
-        sublime.set_timeout(
-            lambda: self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"}),
-            0
-        )
+        def _on_error_process():
+            self.loading_animation.stop()
+            self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"})
+            self.last_is_tool = False
+        sublime.set_timeout(_on_error_process, 0)
 
     def on_stop(self, msg_id, stop_text):
         """Handle stop signal from Gemini."""
-        sublime.set_timeout(lambda: self.loading_animation.stop(), 0)
-        sublime.set_timeout(lambda: self.chat_view.run_command("chat_append", {"text": "\n\n"}), 0)
+        def _on_stop_process():
+            self.loading_animation.stop()
+            self.chat_view.run_command("chat_append", {"text": "\n\n"})
+            self.last_is_tool = False
+        sublime.set_timeout(_on_stop_process, 0)
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
 
     def on_session_ready(self):
@@ -254,6 +261,12 @@ class ChatSession:
 
     def _output_tool_call_text(self, tool_call):
         """Format and append tool call text to the chat view."""
+        tool_id = tool_call.get("toolCallId")
+        if tool_id and tool_id in self.shown_tool_calls:
+            return
+        if tool_id:
+            self.shown_tool_calls.add(tool_id)
+
         tool_kind = tool_call.get("kind", "tool")
         tool_title = tool_call.get("title", tool_call.get("name", ""))
         
@@ -265,7 +278,7 @@ class ChatSession:
         if tool_title:
             formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
 
-        # Ensure we start on a new line if the last character before insertion isn't a newline
+        # Determine prefix based on previous output type
         view = self.chat_view
         prefix = ""
         insert_pos = view.settings().get("gemini_input_start", 0)
@@ -274,9 +287,13 @@ class ChatSession:
             last_char = view.substr(sublime.Region(insert_pos - 1, insert_pos))
             if last_char != "\n":
                 prefix = "\n"
+            if not self.last_is_tool:
+                # Ensure a blank line if previous wasn't a tool
+                prefix += "\n"
 
         selected_text = f"{prefix}{formatted_title}\n"
         view.run_command("chat_append", {"text": selected_text})
+        self.last_is_tool = True
 
     def _auto_approve(self, msg_id, options, tool_call):
         """Attempt to auto-approve the permission."""
@@ -315,6 +332,11 @@ class ChatSession:
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
         sublime.set_timeout(lambda: self._on_thought_process(text), 0)
+
+    def on_tool_call(self, tool_call):
+        """Handle tool call update from Gemini."""
+        if tool_call.get("status") == "in_progress":
+            sublime.set_timeout(lambda: self._output_tool_call_text(tool_call), 0)
 
     def _on_thought_process(self, text):
         # Ensure loading animation is active

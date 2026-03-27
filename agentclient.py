@@ -192,6 +192,8 @@ class GeminiClient:
             text = update["content"].get("text")
             if text:
                 self.callbacks['on_thought'](text)
+        elif update["sessionUpdate"] in ("tool_call", "tool_call_update"):
+            self.callbacks['on_tool_call'](update)
         else:
             LOG.debug("unprocessed agent chat content: %s" % update)
 
