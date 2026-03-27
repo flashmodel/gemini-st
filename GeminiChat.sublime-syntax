@@ -1,0 +1,15 @@
+%YAML 1.2
+---
+# http://www.sublimetext.com/docs/syntax.html
+name: Gemini Chat
+scope: text.html.markdown.geminichat
+version: 2
+
+contexts:
+  main:
+    # Match the whole line to ensure it's picked up, but only color the first part using captures
+    - match: '^\s*(⏺\s*\S+)(.*)$'
+      captures:
+        1: entity.name.function.geminichat
+        # Capture group 2 (.*) is intentionally left without a scope to keep default text color
+    - include: scope:text.html.markdown#markdown
