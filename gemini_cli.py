@@ -1,6 +1,7 @@
 import enum
 import logging
 import os
+import re
 
 import sublime
 import sublime_plugin
@@ -229,15 +230,16 @@ class ChatSession:
             tool_name = tool_call.get("function", "")
 
         approve_mode = self.window.settings().get(GEMINI_APPROVE_MODE, ApproveMode.ALLOW_EDIT.value)
+        tool_kind = tool_call.get("kind", "")
 
-        always_confirm_tools = ("AskUserQuestion", "ask_user", "ExitPlanMode")
-        if tool_name not in always_confirm_tools and tool_call.get("name") not in always_confirm_tools:
+        always_confirm_kinds = ("communicate", "plan", "ask_user")
+        if tool_kind not in always_confirm_kinds:
             if approve_mode == ApproveMode.ACCEPT_ALL.value:
                 if self._auto_approve(msg_id, options, tool_call):
                     return
             elif approve_mode == ApproveMode.ALLOW_EDIT.value:
-                risky_tools = ("run_shell_command", "run_command", "Bash")
-                if tool_name not in risky_tools and tool_call.get("name") not in risky_tools:
+                risky_kinds = ("execute", "agent")
+                if tool_kind not in risky_kinds:
                     if self._auto_approve(msg_id, options, tool_call):
                         return
 
@@ -250,29 +252,65 @@ class ChatSession:
             0
         )
 
+    def _output_tool_call_text(self, tool_call):
+        """Format and append tool call text to the chat view."""
+        tool_kind = tool_call.get("kind", "tool")
+        tool_title = tool_call.get("title", tool_call.get("name", ""))
+        
+        if tool_kind == "execute" and tool_title:
+            # Remove content within [ ] from the execution title
+            tool_title = re.sub(r'\s*\[.*?\]', '', tool_title)
+
+        formatted_title = f"⏺ {tool_kind.capitalize()}"
+        if tool_title:
+            formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
+
+        # Ensure we start on a new line if the last character before insertion isn't a newline
+        view = self.chat_view
+        prefix = ""
+        insert_pos = view.settings().get("gemini_input_start", 0)
+        
+        if insert_pos > 0:
+            last_char = view.substr(sublime.Region(insert_pos - 1, insert_pos))
+            if last_char != "\n":
+                prefix = "\n"
+
+        selected_text = f"{prefix}{formatted_title}\n"
+        view.run_command("chat_append", {"text": selected_text})
+
     def _auto_approve(self, msg_id, options, tool_call):
         """Attempt to auto-approve the permission."""
         allow_option = None
+
+        # Prefer allow_once
         for option in options:
-            option_id = option.get("optionId", "").lower()
-            if option_id in ("allow", "yes", "accept", "approve", "confirm", "run"):
+            if option.get("kind", "").lower() == "allow_once":
                 allow_option = option
                 break
+        if not allow_option:
+            for option in options:
+                option_kind = option.get("kind", "").lower()
+                if option_kind in ("allow_always", "allow"):
+                    allow_option = option
+                    break
+        if not allow_option:
+            for option in options:
+                option_id = option.get("optionId", "").lower()
+                if option_id in ("proceed_once", "proceed_always"):
+                    allow_option = option
+                    break
 
-        if not allow_option and options:
-            allow_option = options[0]
+        if not allow_option:
+            option_id = "proceed_once"
+        else:
+            option_id = allow_option.get("optionId", "proceed_once")
 
-        if allow_option:
-            option_id = allow_option.get("optionId", "")
-            tool_title = tool_call.get("title", tool_call.get("name", "Unknown Tool"))
-            LOG.info(f"Auto-approving {tool_title} with option {option_id}")
-            self.client.send_permission_response(msg_id, option_id)
+        tool_title = tool_call.get("title", tool_call.get("name", "Unknown Tool"))
+        LOG.info(f"Auto-approving {tool_title} with option {option_id}")
+        self.client.send_permission_response(msg_id, option_id)
 
-            # Output auto-approval markdown text
-            selected_text = f"\n\n- ⚡ Auto-approved {tool_title} with: {option_id}\n\n"
-            self.chat_view.run_command("chat_append", {"text": selected_text})
-            return True
-        return False
+        self._output_tool_call_text(tool_call)
+        return True
 
     def on_thought(self, text):
         """Handle thought chunk from Gemini."""
@@ -380,7 +418,6 @@ class ChatSession:
 
     def show_permission_phantom(self, phantom_id, options, tool_call):
         """Display a phantom with permission options."""
-        tool_name = tool_call.get("title", "Unknown tool")
         html = self.create_permission_phantom_html(phantom_id, options, tool_call)
         input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
         region = sublime.Region(input_start, input_start)
@@ -388,7 +425,7 @@ class ChatSession:
             region,
             html,
             sublime.LAYOUT_BLOCK,
-            on_navigate=lambda href: self.handle_permission_selection(href, tool_name)
+            on_navigate=lambda href: self.handle_permission_selection(href, tool_call)
         )
         self.phantom_set.update([phantom])
 
@@ -458,7 +495,7 @@ class ChatSession:
             </div>
         '''
 
-    def handle_permission_selection(self, href, title):
+    def handle_permission_selection(self, href, tool_call):
         """Handle user clicking on a permission option."""
         try:
             if href.startswith("open_diff:"):
@@ -489,9 +526,7 @@ class ChatSession:
             self.phantom_set.update([])
             del self.pending_permissions[phantom_id]
 
-            # output user selection markdown text
-            selected_text = f"\n\n- 🏷️ {option_id}: {title}\n\n"
-            self.chat_view.run_command("chat_append", {"text": selected_text})
+            self._output_tool_call_text(tool_call)
 
         except Exception as e:
             LOG.error("Error handling permission selection: %s", e)
