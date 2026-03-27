@@ -18,27 +18,33 @@ For detailed installation, refer to the [geminicli official docs](https://gemini
 ## Install GeminiCLI plugin from Package Control
 
 The easiest way to install this plugin is through [Package Control](https://packagecontrol.io/packages/GeminiCLI).
+
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
 2.  Type `Package Control: Install Package` and press `Enter`.
 3.  Search for `GeminiCLI` and press `Enter`.
 
 The plugin automatically detects gemini-cli. If the command line tool is installed elsewhere, or you wish to use a specific `gemini`version, you can manually set the path in ` Preferences -> Package Settings -> GeminiCLI -> Settings`
+
 For example set the `"gemini_command"` in settings with:
+
 - Windows: `"C:/Users/myname/AppData/Roaming/npm/gemini.cmd"`
 - macOS/Linux: `"/usr/local/bin/gemini"`
 
 ## Gemini Authentication
 
 You need to authenticate before using the plugin. Supported methods:
+
 - **gemini cli auth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
 - **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
 - **Google Vertex AI**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` section of your settings:
+
     ```
     "env": {
         "GOOGLE_CLOUD_PROJECT": "your-project-id",
         "GOOGLE_CLOUD_LOCATION": "us-central1"
     }
     ```
+
     Ensure you've authenticated with your Google Cloud account via `gcloud auth application-default login`.
 
 ## Start Gemini Chat
@@ -54,6 +60,7 @@ You need to authenticate before using the plugin. Supported methods:
 ### Context Menu: Chat with Current File or Selection
 
 You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
+
 - Open the Gemini chat view (if not already open).
 - Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
 - Tagged files will be automatically sent as context to Gemini.
