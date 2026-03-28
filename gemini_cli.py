@@ -32,6 +32,18 @@ def plugin_loaded():
     plugin.update_log_level(settings)
 
 
+def _reconnect_chat_view(view):
+    """
+    Reconnect an existing chat view to a new ChatSession after a restart.
+    """
+    window = view.window()
+    if not window:
+        return
+
+    window.run_command("gemini_cli", {"view_id": view.id()})
+    LOG.info("Reconnecting Gemini CLI session for window %s", window.id())
+
+
 def get_best_dir(view):
     window = view.window()
     if window:
@@ -567,7 +579,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
-    def run(self, initial_msg="", send_immediate=False):
+    def run(self, initial_msg="", send_immediate=False, view_id=None):
         # Check if a client already exists for this window
         window_id = self.window.id()
         if window_id in gemini_clients:
@@ -580,18 +592,26 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             # If client exists but no view found, clean up
             del gemini_clients[window_id]
 
-        # Create a new view to display the result
-        # Create a new view to display the result
-        chat_view = self.window.new_file()
-        chat_view.set_name(CHAT_VIEW_NAME)
-        chat_view.set_scratch(True)
-        chat_view.set_syntax_file("Packages/GeminiCLI/GeminiChat.sublime-syntax")
-        chat_view.settings().set("draw_minimap", False)
-        chat_view.settings().set("line_numbers", False)
-        chat_view.settings().set("word_wrap", True)
-        chat_view.settings().set("gemini_chat_view", True)
+        chat_view = None
+        if view_id is not None:
+            chat_view = sublime.View(view_id)
+            if not chat_view.is_valid() or not chat_view.settings().get("gemini_chat_view", False):
+                chat_view = None
 
-        chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
+        if chat_view:
+            chat_view.run_command("append", {"characters": "\n\n[Reconnecting to Gemini CLI session...]\n\n"})
+        else:
+            # Create a new view to display the result
+            chat_view = self.window.new_file()
+            chat_view.set_name(CHAT_VIEW_NAME)
+            chat_view.set_scratch(True)
+            chat_view.set_syntax_file("Packages/GeminiCLI/GeminiChat.sublime-syntax")
+            chat_view.settings().set("draw_minimap", False)
+            chat_view.settings().set("line_numbers", False)
+            chat_view.settings().set("word_wrap", True)
+            chat_view.settings().set("gemini_chat_view", True)
+            chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
+
         cwd = get_best_dir(chat_view)
         if cwd:
             chat_view.run_command("append", {"characters": "cwd: %s\n" % cwd})
@@ -607,6 +627,9 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             settings.get("gemini_command", "gemini"),
             extra_env
         )
+
+        if view_id is not None:
+            chat_view.run_command("chat_prompt", {"text": ""})
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
@@ -641,6 +664,24 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
 
 
 class GeminiChatViewListener(sublime_plugin.EventListener):
+    def on_activated_async(self, view):
+        """
+        Reconnect an orphaned chat view only when its window gains focus.
+        """
+        window = view.window()
+        if not window:
+            return
+
+        window_id = window.id()
+        if window_id in gemini_clients:
+            return
+
+        # Check if this window contains an orphaned chat view
+        for v in window.views():
+            if v.settings().get("gemini_chat_view", False):
+                _reconnect_chat_view(v)
+                break
+
     def on_close(self, view):
         """
         Cleanup session when the chat view is closed.
