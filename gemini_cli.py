@@ -173,11 +173,16 @@ class ChatSession:
         self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
         self.send_immediate = send_immediate
         self.last_is_tool = True
+        self.is_startup = True
 
+        self.cwd = get_best_dir(self.chat_view)
+        session_id = self.chat_view.settings().get("gemini_session_id")
+        
         # Create the Gemini client
         self.client = GeminiClient(
             callbacks={
                 'on_message': self.on_message,
+                'on_user_message': self.on_user_message,
                 'on_error': self.on_error,
                 'on_stop': self.on_stop,
                 'on_permission_request': self.on_permission_request,
@@ -186,7 +191,54 @@ class ChatSession:
                 'on_thought': self.on_thought,
                 'on_tool_call': self.on_tool_call
             },
-            cwd=get_best_dir(self.chat_view)
+            cwd=self.cwd,
+            session_id=session_id,
+            ignore_history=bool(session_id)
+        )
+
+    def reload(self, new_cwd):
+        """Reload the session with a new working directory."""
+        if new_cwd == self.cwd:
+            return
+
+        session_id = self.client.session_id
+        if not session_id:
+            LOG.warning("No session ID available for reload, starting new session")
+            # If no session ID, just update cwd and restart normally
+        
+        LOG.info("Reloading session %s with new cwd: %s", session_id, new_cwd)
+        self.cwd = new_cwd
+        
+        # Stop current process
+        self.stop()
+
+        self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
+        
+        # Reset client with same session_id but new cwd
+        self.client = GeminiClient(
+            callbacks={
+                'on_message': self.on_message,
+                'on_user_message': self.on_user_message,
+                'on_error': self.on_error,
+                'on_stop': self.on_stop,
+                'on_permission_request': self.on_permission_request,
+                'on_session_ready': self.on_session_ready,
+                'on_exit': self.on_exit,
+                'on_thought': self.on_thought,
+                'on_tool_call': self.on_tool_call
+            },
+            cwd=self.cwd,
+            session_id=session_id,
+            ignore_history=bool(session_id)
+        )
+
+        # Start again
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        extra_env = settings.get("env", {})
+        self.start(
+            settings.get("api_key", "").strip(),
+            settings.get("gemini_command", "gemini"),
+            extra_env
         )
 
     def set_initial_msg(self, text):
@@ -217,6 +269,17 @@ class ChatSession:
     def send_input(self, user_input):
         prompt_id = self.client.send_input(user_input)
         self.current_msgid = prompt_id
+
+    def on_user_message(self, text):
+        """Handle user message chunks from Gemini (e.g. during history stream)."""
+        sublime.set_timeout(lambda: self._on_user_message_process(text), 0)
+
+    def _on_user_message_process(self, text):
+        # We append a prompt prefix and the text
+        if not self.last_is_tool:
+            self.chat_view.run_command("chat_append", {"text": "\n"})
+        self.chat_view.run_command("chat_append", {"text": PROMPT_PREFIX + text + "\n"})
+        self.last_is_tool = True
 
     def on_message(self, text):
         """Handle message chunks from Gemini."""
@@ -252,7 +315,37 @@ class ChatSession:
 
     def on_session_ready(self):
         """Handle session ready notification."""
+        # Save session ID to view settings for persistence
+        if self.client.session_id:
+            sublime.set_timeout(lambda: self.chat_view.settings().set(
+                "gemini_session_id", self.client.session_id), 0)
+
         self.loading_animation.stop()
+
+        # If we are resuming an existing populated view, don't print the welcome text again.
+        is_reloading = getattr(self.client, 'ignore_messages', False)
+        if is_reloading:
+            if self.is_startup:
+                self.is_startup = False
+                if self.initial_msg:
+                    self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
+                    if self.send_immediate:
+                        self.send_immediate = False
+                        self.chat_view.run_command("gemini_send_input")
+                    self.initial_msg = ""
+                else:
+                    self.chat_view.run_command("chat_prompt", {"text": ""})
+            else:
+                if self.initial_msg:
+                    # Append initial msg to the existing prompt
+                    self.chat_view.run_command("append", {"characters": self.initial_msg + " "})
+                    if self.send_immediate:
+                        self.send_immediate = False
+                        self.chat_view.run_command("gemini_send_input")
+                    self.initial_msg = ""
+            return
+
+        self.is_startup = False
         shortcut = "Command+Enter" if sublime.platform() == "osx" else "Control+Enter"
         welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
         self.chat_view.run_command("append", {"characters": welcome_text})
@@ -263,6 +356,7 @@ class ChatSession:
             if self.send_immediate:
                 self.send_immediate = False
                 self.chat_view.run_command("gemini_send_input")
+            self.initial_msg = ""
         else:
             self.chat_view.run_command("chat_prompt", {"text": ""})
 
@@ -1239,6 +1333,12 @@ class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
         if target_dir:
             self.window.settings().set("gemini_active_workspace", target_dir)
             sublime.status_message(f"Gemini Dir set to: {target_dir}")
+
+            # Reload session if active
+            window_id = self.window.id()
+            if window_id in gemini_clients:
+                session = gemini_clients[window_id]
+                session.reload(target_dir)
         else:
             sublime.status_message("No valid directory for Gemini Workspace")
 

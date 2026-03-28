@@ -44,20 +44,38 @@ class ErrorCode:
     InternalError = -32603
 
 
+def _version_greater_than(v1, v2):
+    """Simple version comparison."""
+    try:
+        parts1 = [int(x) for x in v1.split('.')]
+        parts2 = [int(x) for x in v2.split('.')]
+        # Pad with zeros
+        max_len = max(len(parts1), len(parts2))
+        parts1.extend([0] * (max_len - len(parts1)))
+        parts2.extend([0] * (max_len - len(parts2)))
+        return parts1 > parts2
+    except (ValueError, AttributeError):
+        return False
+
+
 class GeminiClient:
     """
     Handles Gemini CLI protocol communication and message processing.
     """
-    def __init__(self, callbacks, cwd=None):
+    def __init__(self, callbacks, cwd=None, session_id=None, ignore_history=False):
         self.callbacks = callbacks
         self.cwd = cwd if cwd else os.path.expanduser("~")
         self.process = None
         self.input_queue = queue.Queue()
         self.message_id = 0
-        self.session_id = ""
+        self.session_id = session_id if session_id else ""
         self.inited = False
+        self.agent_capabilities = {}
+        self.agent_version = "0.0.0"
         self.init_event = threading.Event()
         self.session_event = threading.Event()
+        # Used to suppress history stream when reloading an already populated view
+        self.ignore_messages = ignore_history
 
     def start(self, api_key=None, gemini_command=None, extra_env=None):
         """Start the Gemini CLI process and communication threads."""
@@ -118,6 +136,7 @@ class GeminiClient:
 
     def send_input(self, text):
         """Queue user input to be sent to Gemini."""
+        self.ignore_messages = False
         msgid = self._next_message_id()
         self.input_queue.put(text)
         return msgid
@@ -174,9 +193,13 @@ class GeminiClient:
         if "agentCapabilities" in result:
             LOG.info("Agent initialize success")
             self.inited = True
+            self.agent_capabilities = result.get("agentCapabilities", {})
+            agent_info = result.get("agentInfo", {})
+            self.agent_version = agent_info.get("version", "0.0.0")
             self.init_event.set()
-        elif "sessionId" in result:
-            self.session_id = result["sessionId"]
+        elif "modes" in result and "models" in result:
+            if "sessionId" in result:
+                self.session_id = result["sessionId"]
             self.session_event.set()
             self.callbacks['on_session_ready']()
         elif "stopReason" in result:
@@ -184,10 +207,17 @@ class GeminiClient:
 
     def _handle_session_update(self, update):
         """Handle session update messages."""
+        if self.ignore_messages and update["sessionUpdate"] in ("agent_message_chunk", "user_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"):
+            return
+
         if update["sessionUpdate"] == "agent_message_chunk":
             text = update["content"].get("text")
             if text:
                 self.callbacks['on_message'](text)
+        elif update["sessionUpdate"] == "user_message_chunk":
+            text = update["content"].get("text")
+            if text:
+                self.callbacks['on_user_message'](text)
         elif update["sessionUpdate"] == "agent_thought_chunk":
             text = update["content"].get("text")
             if text:
@@ -244,7 +274,18 @@ class GeminiClient:
     def _write_loop(self):
         """Process input queue and send to Gemini."""
         self._agent_initialize()
-        self._agent_session_new()
+
+        # Check version and capability for loadSession
+        # User requested version > 0.34.0
+        can_load = self.agent_capabilities.get("loadSession", False) and \
+                  _version_greater_than(self.agent_version, "0.34.0")
+
+        if self.session_id and can_load:
+            self._agent_session_load(self.session_id)
+        else:
+            # Clear invalid session_id if we can't load it
+            self.session_id = ""
+            self._agent_session_new()
 
         while True:
             user_input = self.input_queue.get()
@@ -278,6 +319,15 @@ class GeminiClient:
     def _agent_session_new(self):
         """Create a new session."""
         self._send_request("session/new", {
+            "cwd": self.cwd,
+            "mcpServers": [],
+        })
+        self.session_event.wait(timeout=10)
+
+    def _agent_session_load(self, session_id):
+        """Load an existing session."""
+        self._send_request("session/load", {
+            "sessionId": session_id,
             "cwd": self.cwd,
             "mcpServers": [],
         })
