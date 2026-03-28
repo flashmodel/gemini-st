@@ -927,11 +927,11 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             if v.settings().get("gemini_chat_view", False):
                 continue
 
-            file_name = os.path.basename(file_path)
-            if file_name in seen_files:
+            if file_path in seen_files:
                 continue
 
-            seen_files.add(file_name)
+            seen_files.add(file_path)
+            file_name = os.path.basename(file_path)
 
             # Use relative path as hint if available
             rel_path = file_name
@@ -941,7 +941,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             completions.append(sublime.CompletionItem(
                 file_name,
                 annotation=f"📂 {rel_path}",
-                completion=file_name,
+                completion=file_path,
                 kind=sublime.KIND_VARIABLE
             ))
 
@@ -951,12 +951,12 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                 for item in os.listdir(current_dir):
                     item_path = os.path.join(current_dir, item)
                     if os.path.isfile(item_path) and not item.startswith('.'):
-                        if item not in seen_files:
-                            seen_files.add(item)
+                        if item_path not in seen_files:
+                            seen_files.add(item_path)
                             completions.append(sublime.CompletionItem(
                                 item,
                                 annotation="📄 current dir",
-                                completion=item,
+                                completion=item_path,
                                 kind=sublime.KIND_AMBIGUOUS
                             ))
             except OSError:
@@ -971,7 +971,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                         completions.append(sublime.CompletionItem(
                             item + "/",
                             annotation="📁 subdirectory",
-                            completion=item + "/",
+                            completion=item_path + "/",
                             kind=sublime.KIND_NAMESPACE
                         ))
             except OSError:
@@ -1051,19 +1051,17 @@ class GeminiAddContextCommand(sublime_plugin.TextCommand):
         if not file_path:
             return
 
-        file_name = os.path.basename(file_path)
-
         # Get line numbers (1-based)
         sel = view.sel()[0]
         row_start, _ = view.rowcol(sel.begin())
         row_end, _ = view.rowcol(sel.end())
 
-        # Format as @file_name#L(A)-(B)
+        # Format as @file_path#L(A)-(B)
         # Handle single line selection vs range
         if row_start == row_end:
-            context_tag = f"@{file_name}#L{row_start + 1}"
+            context_tag = f"@{file_path}#L{row_start + 1}"
         else:
-            context_tag = f"@{file_name}#L{row_start + 1}-{row_end + 1}"
+            context_tag = f"@{file_path}#L{row_start + 1}-{row_end + 1}"
 
         # Find or create Gemini chat view
         chat_view = None
@@ -1111,8 +1109,7 @@ class GeminiAddFileCommand(sublime_plugin.WindowCommand):
         if not file_path:
             return
 
-        file_name = os.path.basename(file_path)
-        context_tag = f"@{file_name}"
+        context_tag = f"@{file_path}"
 
         # Find or create Gemini chat view
         chat_view = None
@@ -1151,8 +1148,7 @@ class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
         if not file_path:
             return
 
-        file_name = os.path.basename(file_path)
-        context_tag = f"@{file_name}"
+        context_tag = f"@{file_path}"
 
         # Find or create Gemini chat view
         chat_view = None
