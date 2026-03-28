@@ -8,7 +8,7 @@ version: 2
 contexts:
   main:
     # Match the whole line to ensure it's picked up, but only color the first part using captures
-    - match: '^\s*(⏺\s*\S+)(.*)$'
+    - match: '^(⏺\s*\S+)(.*)$'
       captures:
         1: entity.name.function.geminichat
         # Capture group 2 (.*) is intentionally left without a scope to keep default text color
