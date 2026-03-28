@@ -57,7 +57,7 @@ You need to authenticate before using the plugin. Supported methods:
 
 ## Using Gemini in Sublime Text
 
-### Context Menu: Chat with Current File or Selection
+**Chat with Current File or Selection**
 
 You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
 
@@ -65,15 +65,15 @@ You can right-click in any file, tab, and select **Chat with Gemini agent**. Thi
 - Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
 - Tagged files will be automatically sent as context to Gemini.
 
-### Sidebar: Set Gemini Working Space
+**Set Gemini Working Space**
 
 Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
 
-### Quick Prompt Without Chat View
+**Quick Prompt Without Chat View**
 
 Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
 
-### Gemini Approval Mode
+**Gemini Approval Mode**
 
 Gemini CLI performs various actions (tools) like reading files, searching the web, or executing commands. You can control how much manual approval is required for these actions via the command palette: `Gemini: Approval Mode`
 
@@ -83,7 +83,9 @@ Gemini CLI performs various actions (tools) like reading files, searching the we
 
 ## Key Bindings
 
-this package does not include a global shortcut by default. You can add key bingding manually:
+In the Gemini chat view, you can use the **Up** and **Down** arrow keys to scroll through your input history.
+
+This package does not include a global shortcut by default. You can add key bindings manually:
 
 1.  Go to `Preferences -> Key Bindings`.
 2.  Add the following lines to your user keymap file:
