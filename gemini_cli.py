@@ -160,6 +160,11 @@ class ChatSession:
         # Message on chat startup
         self.initial_msg = initial_msg
 
+        # History state
+        self.history = []
+        self.history_index = 0
+        self.history_stash = ""
+
         # Thought state
         self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
         self.current_thought_text = ""
@@ -671,6 +676,12 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
         if not user_input:
             return
 
+        session = gemini_clients[window_id]
+        if not session.history or session.history[-1] != user_input:
+            session.history.append(user_input)
+        session.history_index = len(session.history)
+        session.history_stash = ""
+
         sublime.status_message("Sending message...")
 
         # Show input text and next prompt (simulated local echo/confirmation)
@@ -679,6 +690,64 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
         # Send to client
         gemini_clients[window_id].send_input(user_input)
         LOG.info("User enter prompt %s", user_input)
+
+
+class GeminiHistoryUpCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        window = self.view.window()
+        if not window or window.id() not in gemini_clients:
+            return
+
+        session = gemini_clients[window.id()]
+        input_start = self.view.settings().get("gemini_input_start", 0)
+        editable_start = input_start + len(PROMPT_PREFIX)
+
+        # History navigation
+        if session.history_index == len(session.history):
+            # Stash current input
+            current_input_region = sublime.Region(editable_start, self.view.size())
+            session.history_stash = self.view.substr(current_input_region)
+
+        if session.history_index > 0:
+            session.history_index -= 1
+            self._replace_input(edit, session.history[session.history_index], editable_start)
+
+    def _replace_input(self, edit, text, start_point):
+        region = sublime.Region(start_point, self.view.size())
+        self.view.replace(edit, region, text)
+        self.view.sel().clear()
+        self.view.sel().add(sublime.Region(self.view.size()))
+        self.view.show(self.view.size())
+
+
+class GeminiHistoryDownCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        window = self.view.window()
+        if not window or window.id() not in gemini_clients:
+            return
+
+        session = gemini_clients[window.id()]
+
+        # History navigation
+        if session.history_index < len(session.history):
+            session.history_index += 1
+
+            text_to_show = ""
+            if session.history_index == len(session.history):
+                text_to_show = session.history_stash
+            else:
+                text_to_show = session.history[session.history_index]
+
+            input_start = self.view.settings().get("gemini_input_start", 0)
+            editable_start = input_start + len(PROMPT_PREFIX)
+            self._replace_input(edit, text_to_show, editable_start)
+
+    def _replace_input(self, edit, text, start_point):
+        region = sublime.Region(start_point, self.view.size())
+        self.view.replace(edit, region, text)
+        self.view.sel().clear()
+        self.view.sel().add(sublime.Region(self.view.size()))
+        self.view.show(self.view.size())
 
 
 class GeminiChatViewListener(sublime_plugin.EventListener):
@@ -763,6 +832,22 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
         input_start = view.settings().get("gemini_input_start", 0)
         editable_start = input_start + len(PROMPT_PREFIX)
+
+        if command_name == "move" and args and args.get("by") == "lines":
+            is_up = not args.get("forward", True)
+            if len(view.sel()) > 0:
+                sel = view.sel()[0]
+                if sel.empty():
+                    if is_up:
+                        row_sel, _ = view.rowcol(sel.begin())
+                        row_start, _ = view.rowcol(editable_start)
+                        if row_sel == row_start:
+                            return ("gemini_history_up", {})
+                    else:
+                        row_sel, _ = view.rowcol(sel.end())
+                        row_last, _ = view.rowcol(view.size())
+                        if row_sel == row_last:
+                            return ("gemini_history_down", {})
 
         # Handle deletion commands - block if they affect content before prompt
         delete_commands = ("left_delete", "right_delete", "delete_word", "delete_word_backward",
