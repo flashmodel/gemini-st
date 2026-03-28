@@ -32,6 +32,22 @@ def plugin_loaded():
     plugin.update_log_level(settings)
 
 
+def plugin_unloaded():
+    """
+    Called by Sublime Text when the plugin is unloaded (e.g., during restart,
+    package update, or application quit). Cleans up subprocesses to prevent orphans.
+    """
+    for window_id, session in list(gemini_clients.items()):
+        try:
+            LOG.info("Terminating Gemini CLI session for window %s on unload", window_id)
+            if session.client and session.client.process:
+                session.client.process.terminate()
+        except Exception as e:
+            LOG.error("Failed to terminate gemini on plugin unload: %s", e)
+
+    gemini_clients.clear()
+
+
 def _reconnect_chat_view(view):
     """
     Reconnect an existing chat view to a new ChatSession after a restart.
@@ -599,7 +615,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 chat_view = None
 
         if chat_view:
-            chat_view.run_command("append", {"characters": "\n\n[Reconnecting to Gemini CLI session...]\n\n"})
+            chat_view.run_command("append", {"characters": "\n\nReconnecting to Gemini CLI session...\n\n"})
         else:
             # Create a new view to display the result
             chat_view = self.window.new_file()
@@ -616,6 +632,8 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         if cwd:
             chat_view.run_command("append", {"characters": "cwd: %s\n" % cwd})
 
+        chat_view.settings().set("gemini_input_start", chat_view.size())
+
         # Create and start the ChatSession
         session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate)
         gemini_clients[window_id] = session
@@ -627,9 +645,6 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             settings.get("gemini_command", "gemini"),
             extra_env
         )
-
-        if view_id is not None:
-            chat_view.run_command("chat_prompt", {"text": ""})
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
