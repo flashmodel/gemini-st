@@ -222,6 +222,9 @@ class ChatSession:
         # Ensure loading animation is active
         self.loading_animation.start(self.loading_region)
 
+        if self.last_is_tool:
+            text = "\n" + text
+
         self.chat_view.run_command("chat_append", {"text": text})
         self.last_is_tool = False
 
