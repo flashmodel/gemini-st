@@ -181,7 +181,7 @@ class ChatSession:
 
         self.cwd = get_best_dir(self.chat_view)
         session_id = self.chat_view.settings().get(GEMINI_SESSION_ID)
-        
+
         # Create the Gemini client
         self.client = GeminiClient(
             callbacks={
@@ -200,22 +200,18 @@ class ChatSession:
             ignore_history=bool(session_id)
         )
 
-    def switch_workspace(self, new_cwd):
-        """Switch the session to a new working directory."""
-        if new_cwd == self.cwd:
-            return
+    def clear_session(self):
+        """Clears the current chat session by restarting the agent."""
+        LOG.info("Clearing chat session in %s", self.cwd)
 
-        LOG.info("Switching workspace to new cwd: %s", new_cwd)
-        self.cwd = new_cwd
-        
         # Stop current process
         self.stop()
 
-        # Clear session ID to ensure a fresh session is started in the new directory
+        # Clear session ID to ensure a fresh session is started
         self.chat_view.settings().erase(GEMINI_SESSION_ID)
 
-        self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
-        
+        self.chat_view.run_command("chat_append", {"text": f"\n\nGemini CLI session reset in {self.cwd}...\n\n"})
+
         # Reset client with NEW session (session_id=None) but same cwd
         self.client = GeminiClient(
             callbacks={
@@ -231,7 +227,50 @@ class ChatSession:
             },
             cwd=self.cwd,
             session_id=None,
-            ignore_history=False
+            ignore_history=True
+        )
+
+        # Start again
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        extra_env = settings.get("env", {})
+        self.start(
+            settings.get("api_key", "").strip(),
+            settings.get("gemini_command", "gemini"),
+            extra_env
+        )
+
+    def switch_workspace(self, new_cwd):
+        """Switch the session to a new working directory."""
+        if new_cwd == self.cwd:
+            return
+
+        LOG.info("Switching workspace to new cwd: %s", new_cwd)
+        self.cwd = new_cwd
+
+        # Stop current process
+        self.stop()
+
+        # Clear session ID to ensure a fresh session is started in the new directory
+        self.chat_view.settings().erase(GEMINI_SESSION_ID)
+
+        self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
+
+        # Reset client with NEW session (session_id=None) but same cwd
+        self.client = GeminiClient(
+            callbacks={
+                'on_message': self.on_message,
+                'on_user_message': self.on_user_message,
+                'on_error': self.on_error,
+                'on_stop': self.on_stop,
+                'on_permission_request': self.on_permission_request,
+                'on_session_ready': self.on_session_ready,
+                'on_exit': self.on_exit,
+                'on_thought': self.on_thought,
+                'on_tool_call': self.on_tool_call
+            },
+            cwd=self.cwd,
+            session_id=None,
+            ignore_history=True
         )
 
         # Start again
@@ -1395,3 +1434,24 @@ class GeminiSetApproveModeCommand(sublime_plugin.WindowCommand):
             return GeminiApproveModeInputHandler(current_mode)
         return None
 
+
+class GeminiClearSessionCommand(sublime_plugin.WindowCommand):
+    """
+    Clears the current chat session by disconnecting and reconnecting the agent.
+    This resets the conversation history.
+    """
+    def run(self):
+        window_id = self.window.id()
+        if window_id not in gemini_clients:
+            sublime.status_message("No active Gemini session found")
+            return
+
+        # Reset the session (disconnect and reconnect agent)
+        session = gemini_clients[window_id]
+        session.clear_session()
+        sublime.status_message("Resetting Gemini session...")
+        LOG.info("Resetting Gemini session via disconnect/reconnect")
+
+    def is_enabled(self):
+        # Only enable if there's an active session
+        return self.window.id() in gemini_clients
