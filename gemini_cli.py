@@ -196,25 +196,23 @@ class ChatSession:
             ignore_history=bool(session_id)
         )
 
-    def reload(self, new_cwd):
-        """Reload the session with a new working directory."""
+    def switch_workspace(self, new_cwd):
+        """Switch the session to a new working directory."""
         if new_cwd == self.cwd:
             return
 
-        session_id = self.client.session_id
-        if not session_id:
-            LOG.warning("No session ID available for reload, starting new session")
-            # If no session ID, just update cwd and restart normally
-        
-        LOG.info("Reloading session %s with new cwd: %s", session_id, new_cwd)
+        LOG.info("Switching workspace to new cwd: %s", new_cwd)
         self.cwd = new_cwd
         
         # Stop current process
         self.stop()
 
+        # Clear session ID to ensure a fresh session is started in the new directory
+        self.chat_view.settings().erase("gemini_session_id")
+
         self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
         
-        # Reset client with same session_id but new cwd
+        # Reset client with NEW session (session_id=None) but same cwd
         self.client = GeminiClient(
             callbacks={
                 'on_message': self.on_message,
@@ -228,8 +226,8 @@ class ChatSession:
                 'on_tool_call': self.on_tool_call
             },
             cwd=self.cwd,
-            session_id=session_id,
-            ignore_history=bool(session_id)
+            session_id=None,
+            ignore_history=False
         )
 
         # Start again
@@ -1334,11 +1332,11 @@ class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
             self.window.settings().set("gemini_active_workspace", target_dir)
             sublime.status_message(f"Gemini Dir set to: {target_dir}")
 
-            # Reload session if active
+            # Switch workspace session if active
             window_id = self.window.id()
             if window_id in gemini_clients:
                 session = gemini_clients[window_id]
-                session.reload(target_dir)
+                session.switch_workspace(target_dir)
         else:
             sublime.status_message("No valid directory for Gemini Workspace")
 
