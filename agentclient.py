@@ -44,8 +44,8 @@ class ErrorCode:
     InternalError = -32603
 
 
-def _version_greater_than(v1, v2):
-    """Simple version comparison."""
+def _version_greater_or_equal(v1, v2):
+    """Simple version comparison (>=)."""
     try:
         parts1 = [int(x) for x in v1.split('.')]
         parts2 = [int(x) for x in v2.split('.')]
@@ -53,7 +53,7 @@ def _version_greater_than(v1, v2):
         max_len = max(len(parts1), len(parts2))
         parts1.extend([0] * (max_len - len(parts1)))
         parts2.extend([0] * (max_len - len(parts2)))
-        return parts1 > parts2
+        return parts1 >= parts2
     except (ValueError, AttributeError):
         return False
 
@@ -74,6 +74,7 @@ class GeminiClient:
         self.agent_version = "0.0.0"
         self.init_event = threading.Event()
         self.session_event = threading.Event()
+        self._pending_requests = {}  # {msg_id: method_name}
         # Used to suppress history stream when reloading an already populated view
         self.ignore_messages = ignore_history
 
@@ -138,7 +139,7 @@ class GeminiClient:
         """Queue user input to be sent to Gemini."""
         self.ignore_messages = False
         msgid = self._next_message_id()
-        self.input_queue.put(text)
+        self.input_queue.put((msgid, text))
         return msgid
 
     def send_permission_response(self, msg_id, option_id):
@@ -180,6 +181,14 @@ class GeminiClient:
         """Handle error messages."""
         error = message.get("error", {})
         err_msg = error.get("message", "Internal error")
+        msg_id = message.get("id")
+
+        method = self._pending_requests.pop(msg_id, None)
+        if method == "initialize":
+            self.init_event.set()
+        elif method in ("session/new", "session/load"):
+            LOG.error("Session request failed: %s", err_msg)
+            self.session_event.set()
 
         # Try to extract details from data
         data = error.get("data")
@@ -190,20 +199,24 @@ class GeminiClient:
 
     def _handle_result(self, msg_id, result):
         """Handle result messages."""
-        if "agentCapabilities" in result:
+        method = self._pending_requests.pop(msg_id, None)
+
+        if method == "initialize":
             LOG.info("Agent initialize success")
             self.inited = True
             self.agent_capabilities = result.get("agentCapabilities", {})
             agent_info = result.get("agentInfo", {})
             self.agent_version = agent_info.get("version", "0.0.0")
             self.init_event.set()
-        elif "modes" in result and "models" in result:
+        elif method in ("session/new", "session/load"):
             if "sessionId" in result:
                 self.session_id = result["sessionId"]
             self.session_event.set()
             self.callbacks['on_session_ready']()
-        elif "stopReason" in result:
-            self.callbacks['on_stop'](msg_id, result["stopReason"])
+        elif method == "session/prompt":
+            self.callbacks['on_stop'](msg_id, result.get("stopReason", "end_turn"))
+        elif method == "session/cancel":
+            LOG.info("Session cancel success")
 
     def _handle_session_update(self, update):
         """Handle session update messages."""
@@ -276,11 +289,12 @@ class GeminiClient:
         self._agent_initialize()
 
         # Check version and capability for loadSession
-        # User requested version > 0.34.0
+        # User requested version >= 0.34.0
         can_load = self.agent_capabilities.get("loadSession", False) and \
-                  _version_greater_than(self.agent_version, "0.34.0")
+                  _version_greater_or_equal(self.agent_version, "0.34.0")
 
         if self.session_id and can_load:
+            LOG.info("reloading session %s", self.session_id)
             self._agent_session_load(self.session_id)
         else:
             # Clear invalid session_id if we can't load it
@@ -288,12 +302,13 @@ class GeminiClient:
             self._agent_session_new()
 
         while True:
-            user_input = self.input_queue.get()
-            if user_input is None:
+            item = self.input_queue.get()
+            if item is None:
                 self.process.stdin.close()
                 break
+            msg_id, user_input = item
             try:
-                self._agent_session_prompt(user_input)
+                self._agent_session_prompt(msg_id, user_input)
             except Exception as e:
                 self.callbacks['on_error']("Error writing to process: %s" % e)
                 break
@@ -333,27 +348,27 @@ class GeminiClient:
         })
         self.session_event.wait(timeout=10)
 
-    def _agent_session_prompt(self, input_text):
+    def _agent_session_prompt(self, msg_id, input_text):
         """Send a prompt to the session."""
         self._send_request("session/prompt", {
             "sessionId": self.session_id,
             "prompt": [{"type": "text", "text": input_text}]
-        })
+        }, msg_id=msg_id)
 
     def agent_session_cancel(self):
-        msg_id = self._next_message_id()
-        self._send_request("session/cancel",
+        return self._send_request("session/cancel",
             {"sessionId": self.session_id})
-        return msg_id
 
     def _next_message_id(self):
         """Generate next message ID."""
         self.message_id += 1
         return self.message_id
 
-    def _send_request(self, method, params):
+    def _send_request(self, method, params, msg_id=None):
         """Send a JSON-RPC request."""
-        msg_id = self.message_id
+        if msg_id is None:
+            msg_id = self._next_message_id()
+        self._pending_requests[msg_id] = method
         request = {"jsonrpc": "2.0", "id": msg_id, "method": method}
         if params:
             request["params"] = params
