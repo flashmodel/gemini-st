@@ -411,8 +411,15 @@ class ChatSession:
 
         formatted_title = f"⏺ {tool_kind.capitalize()}"
         if tool_title:
-            formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
-
+            if "\n" in tool_title:
+                title_lines = tool_title.split("\n", 1)
+                first_line = title_lines[0]
+                rest_of_code = title_lines[1] if len(title_lines) > 1 else ""
+                # Indent the rest of the code by 4 spaces to use Markdown's indent-based code block
+                indented_code = "\n".join("    " + l for l in rest_of_code.split("\n"))
+                formatted_title = f"⏺ {tool_kind.capitalize()} {first_line}\n\n{indented_code}\n"
+            else:
+                formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
         # Determine prefix based on previous output type
         view = self.chat_view
         prefix = ""
