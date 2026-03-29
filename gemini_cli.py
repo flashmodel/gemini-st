@@ -15,6 +15,10 @@ LOG = logging.getLogger(__package__)
 
 CHAT_VIEW_NAME = "Gemini Chat"
 PROMPT_PREFIX = "\n❯ "
+GEMINI_INPUT_START = "gemini_input_start"
+GEMINI_CHAT_VIEW = "gemini_chat_view"
+GEMINI_ACTIVE_WORKSPACE = "gemini_active_workspace"
+GEMINI_SESSION_ID = "gemini_session_id"
 gemini_clients = {}
 
 GEMINI_APPROVE_MODE = "gemini_approve_mode"
@@ -64,7 +68,7 @@ def get_best_dir(view):
     window = view.window()
     if window:
         # Check for explicitly set workspace
-        custom_cwd = window.settings().get("gemini_active_workspace")
+        custom_cwd = window.settings().get(GEMINI_ACTIVE_WORKSPACE)
         if custom_cwd and os.path.isdir(custom_cwd):
             return custom_cwd
 
@@ -176,7 +180,7 @@ class ChatSession:
         self.is_startup = True
 
         self.cwd = get_best_dir(self.chat_view)
-        session_id = self.chat_view.settings().get("gemini_session_id")
+        session_id = self.chat_view.settings().get(GEMINI_SESSION_ID)
         
         # Create the Gemini client
         self.client = GeminiClient(
@@ -208,7 +212,7 @@ class ChatSession:
         self.stop()
 
         # Clear session ID to ensure a fresh session is started in the new directory
-        self.chat_view.settings().erase("gemini_session_id")
+        self.chat_view.settings().erase(GEMINI_SESSION_ID)
 
         self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
         
@@ -248,7 +252,7 @@ class ChatSession:
 
     def loading_region(self):
         """Get the region where the loading animation should be displayed."""
-        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+        input_start = self.chat_view.settings().get(GEMINI_INPUT_START, self.chat_view.size())
         return sublime.Region(input_start, input_start)
 
     def start(self, api_key, gemini_command=None, extra_env=None):
@@ -316,7 +320,7 @@ class ChatSession:
         # Save session ID to view settings for persistence
         if self.client.session_id:
             sublime.set_timeout(lambda: self.chat_view.settings().set(
-                "gemini_session_id", self.client.session_id), 0)
+                GEMINI_SESSION_ID, self.client.session_id), 0)
 
         self.loading_animation.stop()
 
@@ -347,7 +351,7 @@ class ChatSession:
         shortcut = "Command+Enter" if sublime.platform() == "osx" else "Control+Enter"
         welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
         self.chat_view.run_command("append", {"characters": welcome_text})
-        self.chat_view.settings().set("gemini_input_start", self.chat_view.size())
+        self.chat_view.settings().set(GEMINI_INPUT_START, self.chat_view.size())
 
         if self.initial_msg:
             self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
@@ -412,7 +416,7 @@ class ChatSession:
         # Determine prefix based on previous output type
         view = self.chat_view
         prefix = ""
-        insert_pos = view.settings().get("gemini_input_start", 0)
+        insert_pos = view.settings().get(GEMINI_INPUT_START, 0)
 
         if insert_pos > 0:
             # Read up to 2 characters before the insertion point
@@ -488,7 +492,7 @@ class ChatSession:
             # Start a new thought block
             self.current_thought_id = self.current_msgid
             self.current_thought_text = text
-            pos = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+            pos = self.chat_view.settings().get(GEMINI_INPUT_START, self.chat_view.size())
             self.thought_blocks.append({
                 "text": text,
                 "expanded": False,
@@ -578,7 +582,7 @@ class ChatSession:
     def show_permission_phantom(self, phantom_id, options, tool_call):
         """Display a phantom with permission options."""
         html = self.create_permission_phantom_html(phantom_id, options, tool_call)
-        input_start = self.chat_view.settings().get("gemini_input_start", self.chat_view.size())
+        input_start = self.chat_view.settings().get(GEMINI_INPUT_START, self.chat_view.size())
         region = sublime.Region(input_start, input_start)
         phantom = sublime.Phantom(
             region,
@@ -701,7 +705,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         if window_id in gemini_clients:
             # Try to find and focus existing chat view
             for view in self.window.views():
-                if view.settings().get("gemini_chat_view", False):
+                if view.settings().get(GEMINI_CHAT_VIEW, False):
                     self.window.focus_view(view)
                     sublime.status_message("Gemini: Already active in this window.")
                     return
@@ -711,7 +715,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         chat_view = None
         if view_id is not None:
             chat_view = sublime.View(view_id)
-            if not chat_view.is_valid() or not chat_view.settings().get("gemini_chat_view", False):
+            if not chat_view.is_valid() or not chat_view.settings().get(GEMINI_CHAT_VIEW, False):
                 chat_view = None
 
         if chat_view:
@@ -725,14 +729,14 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             chat_view.settings().set("draw_minimap", False)
             chat_view.settings().set("line_numbers", False)
             chat_view.settings().set("word_wrap", True)
-            chat_view.settings().set("gemini_chat_view", True)
+            chat_view.settings().set(GEMINI_CHAT_VIEW, True)
             chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
 
         cwd = get_best_dir(chat_view)
         if cwd:
             chat_view.run_command("append", {"characters": "cwd: %s\n" % cwd})
 
-        chat_view.settings().set("gemini_input_start", chat_view.size())
+        chat_view.settings().set(GEMINI_INPUT_START, chat_view.size())
 
         # Create and start the ChatSession
         session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate)
@@ -761,7 +765,7 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
             sublime.status_message("No active Gemini session found")
             return
 
-        input_start = self.view.settings().get("gemini_input_start", 0)
+        input_start = self.view.settings().get(GEMINI_INPUT_START, 0)
         input_region = sublime.Region(input_start + len(PROMPT_PREFIX), self.view.size())
         user_input = self.view.substr(input_region).strip()
 
@@ -791,7 +795,7 @@ class GeminiHistoryUpCommand(sublime_plugin.TextCommand):
             return
 
         session = gemini_clients[window.id()]
-        input_start = self.view.settings().get("gemini_input_start", 0)
+        input_start = self.view.settings().get(GEMINI_INPUT_START, 0)
         editable_start = input_start + len(PROMPT_PREFIX)
 
         # History navigation
@@ -830,7 +834,7 @@ class GeminiHistoryDownCommand(sublime_plugin.TextCommand):
             else:
                 text_to_show = session.history[session.history_index]
 
-            input_start = self.view.settings().get("gemini_input_start", 0)
+            input_start = self.view.settings().get(GEMINI_INPUT_START, 0)
             editable_start = input_start + len(PROMPT_PREFIX)
             self._replace_input(edit, text_to_show, editable_start)
 
@@ -857,7 +861,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
         # Check if this window contains an orphaned chat view
         for v in window.views():
-            if v.settings().get("gemini_chat_view", False):
+            if v.settings().get(GEMINI_CHAT_VIEW, False):
                 _reconnect_chat_view(v)
                 break
 
@@ -885,12 +889,12 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         Restrict cursor movement to the editable area.
         Allows selecting history for copy, but prevents placing the caret in history.
         """
-        if not view.settings().get("gemini_chat_view", False) and view.name() != CHAT_VIEW_NAME:
+        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() != CHAT_VIEW_NAME:
             return
-        if not view.settings().has("gemini_input_start"):
+        if not view.settings().has(GEMINI_INPUT_START):
             return
 
-        input_start = view.settings().get("gemini_input_start", 0)
+        input_start = view.settings().get(GEMINI_INPUT_START, 0)
         editable_start = input_start + len(PROMPT_PREFIX)
 
         new_sel = []
@@ -919,10 +923,10 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
     def on_text_command(self, view, command_name, args):
         """Intercept text commands to protect content before prompt area."""
         # Only monitor Gemini chat views
-        if not view.settings().get("gemini_chat_view", False) and view.name() != CHAT_VIEW_NAME:
+        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() != CHAT_VIEW_NAME:
             return None
 
-        input_start = view.settings().get("gemini_input_start", 0)
+        input_start = view.settings().get(GEMINI_INPUT_START, 0)
         editable_start = input_start + len(PROMPT_PREFIX)
 
         if command_name == "move" and args and args.get("by") == "lines":
@@ -981,11 +985,11 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         Provide filename completions when typing '@' in the prompt area.
         Shows three categories: open files, current directory files, and subdirectories.
         """
-        if not view.settings().get("gemini_chat_view", False):
+        if not view.settings().get(GEMINI_CHAT_VIEW, False):
             return None
 
         # Check if in editable area
-        input_start = view.settings().get("gemini_input_start", 0)
+        input_start = view.settings().get(GEMINI_INPUT_START, 0)
         editable_start = input_start + len(PROMPT_PREFIX)
         pos = locations[0]
 
@@ -1016,7 +1020,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
                 continue
 
             # Skip the chat view itself
-            if v.settings().get("gemini_chat_view", False):
+            if v.settings().get(GEMINI_CHAT_VIEW, False):
                 continue
 
             if file_path in seen_files:
@@ -1075,7 +1079,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         """
         Trigger autocompletion immediately when '@' is typed.
         """
-        if not view.settings().get("gemini_chat_view", False):
+        if not view.settings().get(GEMINI_CHAT_VIEW, False):
             return
 
         # Check if the last character typed was '@'
@@ -1088,7 +1092,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             return
 
         # Check if in editable area
-        input_start = view.settings().get("gemini_input_start", 0)
+        input_start = view.settings().get(GEMINI_INPUT_START, 0)
         editable_start = input_start + len(PROMPT_PREFIX)
         if pos < editable_start:
             return
@@ -1106,10 +1110,10 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 class ChatAppendCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
-        input_start = self.view.settings().get("gemini_input_start", 0)
+        input_start = self.view.settings().get(GEMINI_INPUT_START, 0)
         inserted = self.view.insert(edit, input_start, text)
         new_pos = input_start + inserted
-        self.view.settings().set("gemini_input_start", new_pos)
+        self.view.settings().set(GEMINI_INPUT_START, new_pos)
         self.view.show(self.view.size())
 
 
@@ -1117,7 +1121,7 @@ class ChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         self.view.insert(edit, self.view.size(), "\n\n")
-        self.view.settings().set("gemini_input_start", self.view.size())
+        self.view.settings().set(GEMINI_INPUT_START, self.view.size())
 
         # Next input prompt
         self.view.insert(edit, self.view.size(), PROMPT_PREFIX)
@@ -1158,7 +1162,7 @@ class GeminiAddContextCommand(sublime_plugin.TextCommand):
         # Find or create Gemini chat view
         chat_view = None
         for v in window.views():
-            if v.settings().get("gemini_chat_view", False):
+            if v.settings().get(GEMINI_CHAT_VIEW, False):
                 chat_view = v
                 break
 
@@ -1206,7 +1210,7 @@ class GeminiAddFileCommand(sublime_plugin.WindowCommand):
         # Find or create Gemini chat view
         chat_view = None
         for v in window.views():
-            if v.settings().get("gemini_chat_view", False):
+            if v.settings().get(GEMINI_CHAT_VIEW, False):
                 chat_view = v
                 break
 
@@ -1245,7 +1249,7 @@ class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
         # Find or create Gemini chat view
         chat_view = None
         for v in window.views():
-            if v.settings().get("gemini_chat_view", False):
+            if v.settings().get(GEMINI_CHAT_VIEW, False):
                 chat_view = v
                 break
 
@@ -1266,7 +1270,7 @@ class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
 
     def is_visible(self):
         # Hide if current view is the Gemini chat view
-        return not self.view.settings().get("gemini_chat_view", False)
+        return not self.view.settings().get(GEMINI_CHAT_VIEW, False)
 
 
 class GeminiPromptHandler(sublime_plugin.TextInputHandler):
@@ -1329,7 +1333,7 @@ class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
                     break
 
         if target_dir:
-            self.window.settings().set("gemini_active_workspace", target_dir)
+            self.window.settings().set(GEMINI_ACTIVE_WORKSPACE, target_dir)
             sublime.status_message(f"Gemini Dir set to: {target_dir}")
 
             # Switch workspace session if active
