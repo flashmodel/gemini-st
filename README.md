@@ -11,7 +11,7 @@ This plugin relies on the Google Gemini CLI. Install the required CLI tool:
 npm install -g @google/gemini-cli
 ```
 
-For detailed installation, refer to the [geminicli official docs](https://geminicli.com/docs/get-started/installation/).
+**Requirement:** gemini-cli version `0.34.0` or higher. For detailed installation, refer to the [geminicli official docs](https://geminicli.com/docs/get-started/installation/).
 
 > **Note:** The plugin automatically detects CLI installation across multiple environments, including **Homebrew**, **npm-global**, **Yarn**, and common local binary directories. You typically don't need to manually configure environment variables or search paths.
 
