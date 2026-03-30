@@ -210,7 +210,7 @@ class ChatSession:
         # Clear session ID to ensure a fresh session is started
         self.chat_view.settings().erase(GEMINI_SESSION_ID)
 
-        self.chat_view.run_command("chat_append", {"text": f"\n\nGemini CLI session reset in {self.cwd}...\n\n"})
+        self.chat_view.run_command("gemini_chat_append", {"text": f"\n\nGemini CLI session reset in {self.cwd}...\n\n"})
 
         # Reset client with NEW session (session_id=None) but same cwd
         self.client = GeminiClient(
@@ -253,7 +253,7 @@ class ChatSession:
         # Clear session ID to ensure a fresh session is started in the new directory
         self.chat_view.settings().erase(GEMINI_SESSION_ID)
 
-        self.chat_view.run_command("chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
+        self.chat_view.run_command("gemini_chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
 
         # Reset client with NEW session (session_id=None) but same cwd
         self.client = GeminiClient(
@@ -318,8 +318,8 @@ class ChatSession:
     def _on_user_message_process(self, text):
         # We append a prompt prefix and the text
         if not self.last_is_tool:
-            self.chat_view.run_command("chat_append", {"text": "\n"})
-        self.chat_view.run_command("chat_append", {"text": PROMPT_PREFIX + text + "\n"})
+            self.chat_view.run_command("gemini_chat_append", {"text": "\n"})
+        self.chat_view.run_command("gemini_chat_append", {"text": PROMPT_PREFIX + text + "\n"})
         self.last_is_tool = True
 
     def on_message(self, text):
@@ -334,14 +334,14 @@ class ChatSession:
         if self.last_is_tool:
             text = "\n" + text
 
-        self.chat_view.run_command("chat_append", {"text": text})
+        self.chat_view.run_command("gemini_chat_append", {"text": text})
         self.last_is_tool = False
 
     def on_error(self, message):
         """Handle error messages."""
         def _on_error_process():
             self.loading_animation.stop()
-            self.chat_view.run_command("chat_append", {"text": "\nError: " + message + "\n"})
+            self.chat_view.run_command("gemini_chat_append", {"text": "\nError: " + message + "\n"})
             self.last_is_tool = False
         sublime.set_timeout(_on_error_process, 0)
 
@@ -349,7 +349,7 @@ class ChatSession:
         """Handle stop signal from Gemini."""
         def _on_stop_process():
             self.loading_animation.stop()
-            self.chat_view.run_command("chat_append", {"text": "\n\n"})
+            self.chat_view.run_command("gemini_chat_append", {"text": "\n\n"})
             self.last_is_tool = False
         sublime.set_timeout(_on_stop_process, 0)
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
@@ -369,13 +369,13 @@ class ChatSession:
             if self.is_startup:
                 self.is_startup = False
                 if self.initial_msg:
-                    self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
+                    self.chat_view.run_command("gemini_chat_prompt", {"text": self.initial_msg})
                     if self.send_immediate:
                         self.send_immediate = False
                         self.chat_view.run_command("gemini_send_input")
                     self.initial_msg = ""
                 else:
-                    self.chat_view.run_command("chat_prompt", {"text": ""})
+                    self.chat_view.run_command("gemini_chat_prompt", {"text": ""})
             else:
                 if self.initial_msg:
                     # Append initial msg to the existing prompt
@@ -393,13 +393,13 @@ class ChatSession:
         self.chat_view.settings().set(GEMINI_INPUT_START, self.chat_view.size())
 
         if self.initial_msg:
-            self.chat_view.run_command("chat_prompt", {"text": self.initial_msg})
+            self.chat_view.run_command("gemini_chat_prompt", {"text": self.initial_msg})
             if self.send_immediate:
                 self.send_immediate = False
                 self.chat_view.run_command("gemini_send_input")
             self.initial_msg = ""
         else:
-            self.chat_view.run_command("chat_prompt", {"text": ""})
+            self.chat_view.run_command("gemini_chat_prompt", {"text": ""})
 
     def on_permission_request(self, msg_id, options, tool_call):
         """Handle permission request from Gemini."""
@@ -479,7 +479,7 @@ class ChatSession:
                     prefix += "\n"
 
         selected_text = f"{prefix}{formatted_title}\n"
-        view.run_command("chat_append", {"text": selected_text})
+        view.run_command("gemini_chat_append", {"text": selected_text})
         self.last_is_tool = True
 
     def _auto_approve(self, msg_id, options, tool_call):
@@ -545,7 +545,7 @@ class ChatSession:
                 "pos": pos
             })
             # New line char for the Phantom layout
-            self.chat_view.run_command("chat_append", {"text": "\n"})
+            self.chat_view.run_command("gemini_chat_append", {"text": "\n"})
         else:
             # Append to latest thought block
             self.current_thought_text += text
@@ -827,7 +827,7 @@ class GeminiSendInputCommand(sublime_plugin.TextCommand):
         sublime.status_message("Sending message...")
 
         # Show input text and next prompt (simulated local echo/confirmation)
-        self.view.run_command("chat_prompt", {"text": ""})
+        self.view.run_command("gemini_chat_prompt", {"text": ""})
 
         # Send to client
         gemini_clients[window_id].send_input(user_input)
@@ -1153,7 +1153,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             })
 
 
-class ChatAppendCommand(sublime_plugin.TextCommand):
+class GeminiChatAppendCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         input_start = self.view.settings().get(GEMINI_INPUT_START, 0)
@@ -1163,7 +1163,7 @@ class ChatAppendCommand(sublime_plugin.TextCommand):
         self.view.show(self.view.size())
 
 
-class ChatPromptCommand(sublime_plugin.TextCommand):
+class GeminiChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         self.view.insert(edit, self.view.size(), "\n\n")
@@ -1340,7 +1340,7 @@ class GeminiPromptCommand(sublime_plugin.WindowCommand):
             session = gemini_clients[window_id]
             chat_view = session.chat_view
             # self.window.focus_view(chat_view)
-            # Use chat_prompt to insert and then send
+            # Use gemini_chat_prompt to insert and then send
             chat_view.run_command("insert", {"characters": gemini_prompt})
             chat_view.run_command("gemini_send_input")
         else:
