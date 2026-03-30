@@ -327,7 +327,15 @@ class ChatSession:
         # Dispatch to main thread to ensure thread safety for UI updates and state modification
         sublime.set_timeout(lambda: self._on_message_process(text), 0)
 
+    def _ensure_session_id_saved(self):
+        """Save session ID to view settings for persistence if not already set."""
+        if self.client and self.client.session_id:
+            if self.chat_view.settings().get(GEMINI_SESSION_ID) != self.client.session_id:
+                self.chat_view.settings().set(GEMINI_SESSION_ID, self.client.session_id)
+
     def _on_message_process(self, text):
+        self._ensure_session_id_saved()
+
         # Ensure loading animation is active
         self.loading_animation.start(self.loading_region)
 
@@ -356,11 +364,6 @@ class ChatSession:
 
     def on_session_ready(self):
         """Handle session ready notification."""
-        # Save session ID to view settings for persistence
-        if self.client.session_id:
-            sublime.set_timeout(lambda: self.chat_view.settings().set(
-                GEMINI_SESSION_ID, self.client.session_id), 0)
-
         self.loading_animation.stop()
 
         # If we are resuming an existing populated view, don't print the welcome text again.
@@ -432,6 +435,8 @@ class ChatSession:
 
     def _output_tool_call_text(self, tool_call):
         """Format and append tool call text to the chat view."""
+        self._ensure_session_id_saved()
+
         # Ensure loading animation is active
         self.loading_animation.start(self.loading_region)
 
@@ -526,6 +531,8 @@ class ChatSession:
             sublime.set_timeout(lambda: self._output_tool_call_text(tool_call), 0)
 
     def _on_thought_process(self, text):
+        self._ensure_session_id_saved()
+
         # Ensure loading animation is active
         self.loading_animation.start(self.loading_region)
         self.update_think_process(text)
