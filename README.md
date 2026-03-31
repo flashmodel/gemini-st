@@ -52,14 +52,14 @@ You need to authenticate before using the plugin. Supported methods:
 1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
 2.  Type `Gemini: Start Chat` and press `Enter`.
 3.  A new view will open for the Gemini chat.
-4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#configuration) for configuration).
+4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
 
 ## Using Gemini in Sublime Text
 
 **Chat with Current File or Selection**
 
-You can right-click in any file, tab, and select **Chat with Gemini agent**. This will:
+You can right-click in any file, tab, or item in the sidebar, and select **Chat with Gemini agent**. This will:
 
 - Open the Gemini chat view (if not already open).
 - Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
