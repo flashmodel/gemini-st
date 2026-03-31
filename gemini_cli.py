@@ -145,7 +145,7 @@ class ChatSession:
     """
     Manages the state and UI for a single Gemini chat session.
     """
-    def __init__(self, window, view, initial_msg="", send_immediate=False):
+    def __init__(self, window, view, initial_msg="", send_immediate=False, cwd=None):
         self.window = window
         self.chat_view = view
 
@@ -179,7 +179,7 @@ class ChatSession:
         self.last_is_tool = True
         self.is_startup = True
 
-        self.cwd = get_best_dir(self.chat_view)
+        self.cwd = cwd or get_best_dir(self.chat_view)
         session_id = self.chat_view.settings().get(GEMINI_SESSION_ID)
 
         # Create the Gemini client
@@ -752,7 +752,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
-    def run(self, initial_msg="", send_immediate=False, view_id=None):
+    def run(self, initial_msg="", send_immediate=False, view_id=None, cwd=None):
         # Check if a client already exists for this window
         window_id = self.window.id()
         if window_id in gemini_clients:
@@ -785,14 +785,14 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             chat_view.settings().set(GEMINI_CHAT_VIEW, True)
             chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
 
-        cwd = get_best_dir(chat_view)
-        if cwd:
-            chat_view.run_command("append", {"characters": "cwd: %s\n" % cwd})
+        resolved_cwd = cwd or get_best_dir(chat_view)
+        if resolved_cwd:
+            chat_view.run_command("append", {"characters": "cwd: %s\n" % resolved_cwd})
 
         chat_view.settings().set(GEMINI_INPUT_START, chat_view.size())
 
         # Create and start the ChatSession
-        session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate)
+        session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate, cwd=resolved_cwd)
         gemini_clients[window_id] = session
 
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
@@ -1238,27 +1238,30 @@ class GeminiAddContextCommand(sublime_plugin.TextCommand):
 
 class GeminiAddFileCommand(sublime_plugin.WindowCommand):
     """
-    Command to add file reference to the Gemini chat prompt.
+    Command to add file or directory reference to the Gemini chat prompt.
     Works from tab context menu and sidebar.
+    If cwd is not set, uses the top-level directory of the selected item as cwd.
     """
-    def run(self, files=None):
+    def run(self, files=None, dirs=None):
         window = self.window
         if not window:
             return
 
-        # Get file path from either files parameter (sidebar) or active view (tab)
-        file_path = None
+        # Get file path from either files/dirs parameter (sidebar) or active view (tab)
+        selected_path = None
         if files and len(files) > 0:
-            file_path = files[0]
+            selected_path = files[0]
+        elif dirs and len(dirs) > 0:
+            selected_path = dirs[0]
         else:
             view = window.active_view()
             if view:
-                file_path = view.file_name()
+                selected_path = view.file_name()
 
-        if not file_path:
+        if not selected_path:
             return
 
-        context_tag = f"@{file_path}"
+        context_tag = f"@{selected_path}"
 
         # Find or create Gemini chat view
         chat_view = None
@@ -1268,11 +1271,34 @@ class GeminiAddFileCommand(sublime_plugin.WindowCommand):
                 break
 
         if not chat_view:
-            # If no chat view, create one and pass the context tag immediately
-            window.run_command("gemini_cli", {"initial_msg": context_tag})
+            top_level_dir = self._get_top_level_dir(window, selected_path)
+            # If no chat view, create one and pass the context tag and calculated cwd immediately
+            kwargs = {"initial_msg": context_tag}
+            if top_level_dir:
+                kwargs["cwd"] = top_level_dir
+            window.run_command("gemini_cli", kwargs)
         else:
             window.focus_view(chat_view)
             self._insert_tag(chat_view, context_tag)
+
+    def _get_top_level_dir(self, window, selected_path):
+        """
+        Finds the top-level directory for a given path from the window's folders.
+        Returns the folder if found, otherwise returns the path itself (if a dir)
+        or its parent directory.
+        """
+        if not selected_path:
+            return None
+
+        folders = window.folders()
+        if folders:
+            for folder in folders:
+                if selected_path == folder or selected_path.startswith(folder + os.sep):
+                    return folder
+
+        if os.path.isdir(selected_path):
+            return selected_path
+        return os.path.dirname(selected_path)
 
     def _insert_tag(self, chat_view, context_tag):
         # Insert at the end of the view (current prompt area)
@@ -1281,6 +1307,11 @@ class GeminiAddFileCommand(sublime_plugin.WindowCommand):
         chat_view.sel().clear()
         chat_view.sel().add(sublime.Region(chat_view.size()))
         chat_view.show(chat_view.size())
+
+    def is_visible(self, files=None, dirs=None):
+        if files is not None or dirs is not None:
+            return bool(files or dirs)
+        return True
 
 
 class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
