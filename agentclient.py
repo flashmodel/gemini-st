@@ -78,6 +78,35 @@ class GeminiClient:
         # Used to suppress history stream when reloading an already populated view
         self.ignore_messages = ignore_history
 
+    def _get_acp_flag(self, gemini_command, env):
+        """
+        Determine the correct ACP flag based on the gemini-cli version.
+        Versions prior to 0.34.0 require the --experimental-acp flag.
+        Version 0.34.0 and later use the stabilized --acp flag.
+        """
+        try:
+            import re
+            v_args = {}
+            if sublime.platform() == 'windows':
+                v_args['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+            version_out = subprocess.check_output(
+                [gemini_command, "--version"],
+                env=env,
+                universal_newlines=True,
+                stderr=subprocess.STDOUT,
+                **v_args
+            ).strip()
+            match = re.search(r'(\d+\.\d+\.\d+)', version_out)
+            if match:
+                # 0.34.0 stabilizes the ACP protocol and uses --acp
+                if not _version_greater_or_equal(match.group(1), "0.34.0"):
+                    return "--experimental-acp"
+        except Exception as e:
+            msg = "Failed to check gemini-cli version: %s" % e
+            LOG.error(msg)
+        return "--acp"
+
     def start(self, api_key=None, gemini_command=None, extra_env=None):
         """Start the Gemini CLI process and communication threads."""
         if not gemini_command:
@@ -117,8 +146,10 @@ class GeminiClient:
             if sublime.platform() == 'windows':
                 popen_args['creationflags'] = subprocess.CREATE_NO_WINDOW
 
+            acp_flag = self._get_acp_flag(gemini_command, env)
+
             self.process = subprocess.Popen(
-                [gemini_command, "--experimental-acp"],
+                [gemini_command, acp_flag],
                 **popen_args
             )
 
