@@ -109,6 +109,13 @@ class GeminiClient:
 
     def start(self, api_key=None, gemini_command=None, extra_env=None):
         """Start the Gemini CLI process and communication threads."""
+        threading.Thread(
+            target=self._start_thread,
+            args=(api_key, gemini_command, extra_env),
+            daemon=True
+        ).start()
+
+    def _start_thread(self, api_key, gemini_command, extra_env):
         if not gemini_command:
             gemini_command = shutil.which("gemini") or _find_gemini_cli()
 
