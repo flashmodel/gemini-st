@@ -4,7 +4,7 @@ This package provides an agentic interface to the google Gemini CLI directly wit
 
 ![Gemini Chat](screenshot.png)
 
-For detailed usage and features, please refer to the [Gemini CLI in SublimeText](https://flashmodel.github.io/sublime-gemini-book/).
+For detailed usage and features, please refer to the [Gemini CLI in SublimeText](https://flashmodel.github.io/using-sublime-gemini/).
 
 ## Prerequisites
 This plugin relies on the Google Gemini CLI. Install the required CLI tool:
