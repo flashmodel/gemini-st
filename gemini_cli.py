@@ -295,7 +295,12 @@ class ChatSession:
         return sublime.Region(input_start, input_start)
 
     def start(self, api_key, gemini_command=None, extra_env=None):
-        self.client.start(api_key, gemini_command, extra_env)
+        env = dict(extra_env) if extra_env else {}
+        folders = self.window.folders()
+        if folders:
+            env["GEMINI_CLI_IDE_WORKSPACE_PATH"] = os.pathsep.join(folders)
+
+        self.client.start(api_key, gemini_command, env)
         self.loading_animation.start(self.loading_region)
 
     def stop(self):
