@@ -72,6 +72,8 @@ class GeminiClient:
         self.inited = False
         self.agent_capabilities = {}
         self.agent_version = "0.0.0"
+        self.available_models = []
+        self.current_model_id = ""
         self.init_event = threading.Event()
         self.session_event = threading.Event()
         self._pending_requests = {}  # {msg_id: method_name}
@@ -249,6 +251,10 @@ class GeminiClient:
         elif method in ("session/new", "session/load"):
             if "sessionId" in result:
                 self.session_id = result["sessionId"]
+            if "models" in result:
+                models_info = result["models"]
+                self.available_models = models_info.get("availableModels", [])
+                self.current_model_id = models_info.get("currentModelId", "")
             self.session_event.set()
             self.callbacks['on_session_ready']()
         elif method == "session/prompt":
@@ -396,6 +402,13 @@ class GeminiClient:
     def agent_session_cancel(self):
         return self._send_request("session/cancel",
             {"sessionId": self.session_id})
+
+    def agent_session_set_model(self, model_id):
+        """Set the model for the current session."""
+        return self._send_request("session/set_model", {
+            "sessionId": self.session_id,
+            "modelId": model_id
+        })
 
     def _next_message_id(self):
         """Generate next message ID."""

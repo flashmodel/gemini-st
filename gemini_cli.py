@@ -22,6 +22,7 @@ GEMINI_SESSION_ID = "gemini_session_id"
 gemini_clients = {}
 
 GEMINI_APPROVE_MODE = "gemini_approve_mode"
+GEMINI_MODEL = "gemini_model"
 
 class ApproveMode(enum.Enum):
     DEFAULT = "default"
@@ -372,6 +373,13 @@ class ChatSession:
     def on_session_ready(self):
         """Handle session ready notification."""
         self.loading_animation.stop()
+
+        # Ensure the desired model is applied
+        desired_model = self.window.settings().get(GEMINI_MODEL)
+        if desired_model and desired_model != "default":
+            if getattr(self.client, "current_model_id", "") != desired_model:
+                self.client.agent_session_set_model(desired_model)
+                self.client.current_model_id = desired_model
 
         # If we are resuming an existing populated view, don't print the welcome text again.
         is_reloading = getattr(self.client, 'ignore_messages', False)
@@ -1479,6 +1487,89 @@ class GeminiSetApproveModeCommand(sublime_plugin.WindowCommand):
         if "mode" not in args:
             current_mode = self.window.settings().get(GEMINI_APPROVE_MODE, ApproveMode.ALLOW_EDIT.value)
             return GeminiApproveModeInputHandler(current_mode)
+        return None
+
+
+class GeminiSetModelListHandler(sublime_plugin.ListInputHandler):
+    def __init__(self, available_models, current_model):
+        self.available_models = available_models
+        self.current_model = current_model
+
+    def name(self):
+        return "model"
+
+    def list_items(self):
+        items = []
+        for m in self.available_models:
+            name = m.get("name", m.get("modelId", ""))
+            desc = m.get("description", "")
+            if desc:
+                name = f"{name}: ({desc})"
+            items.append((name, m.get("modelId", "")))
+
+        if self.current_model:
+            for i, item in enumerate(items):
+                if item[1] == self.current_model:
+                    items.insert(0, items.pop(i))
+                    break
+
+        return items
+
+    def placeholder(self):
+        if self.current_model:
+            return f" ( {self.current_model} ); select a model"
+        return "select a model"
+
+
+class GeminiSetModelTextHandler(sublime_plugin.TextInputHandler):
+    def __init__(self, current_model):
+        self.current_model = current_model
+
+    def name(self):
+        return "model"
+
+    def placeholder(self):
+        if self.current_model:
+            return f"Enter model ID (current: {self.current_model})"
+        return "Enter model ID (e.g., gemini-2.5-pro)"
+
+    def description(self, text):
+        return "Set Model: " + text if text else "Set Model"
+
+    def validate(self, text):
+        return len(text.strip()) > 0
+
+
+class GeminiSetModelCommand(sublime_plugin.WindowCommand):
+    """Set the model for the current Gemini session."""
+    def run(self, model):
+        if not model:
+            model = "default"
+
+        self.window.settings().set(GEMINI_MODEL, model.strip())
+        sublime.status_message(f"Gemini model set to: {model.strip()}")
+
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            if getattr(session, "client", None) and session.client.session_id:
+                session.client.agent_session_set_model(model.strip())
+                session.client.current_model_id = model.strip()
+
+    def input(self, args):
+        if "model" not in args:
+            window_id = self.window.id()
+            current_model = self.window.settings().get(GEMINI_MODEL, "default")
+
+            if window_id in gemini_clients:
+                session = gemini_clients[window_id]
+                client = getattr(session, "client", None)
+                if client and getattr(client, "available_models", None):
+                    if current_model == "default" and getattr(client, "current_model_id", ""):
+                        current_model = client.current_model_id
+                    return GeminiSetModelListHandler(client.available_models, current_model)
+
+            return GeminiSetModelTextHandler(current_model)
         return None
 
 
