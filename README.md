@@ -69,7 +69,9 @@ You can right-click in any file, tab, or item in the sidebar, and select **Chat 
 
 **Set Gemini Working Space**
 
-Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
+Right-click on any folder in the sidebar and select **Set Gemini Working Space** to set the primary working directory for Gemini. This affects the current working directory when Gemini executes commands or accesses files.
+
+Additionally, this plugin supports Sublime Text's multi-root workspaces. By default, it injects all currently open folders into the Gemini CLI automatically, ensuring the agent can access your entire open project across multiple roots. This can be disabled via the `share_workspace_folders` setting in `GeminiCLI.sublime-settings`.
 
 **Quick Prompt Without Chat View**
 

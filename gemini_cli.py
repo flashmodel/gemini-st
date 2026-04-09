@@ -296,9 +296,11 @@ class ChatSession:
 
     def start(self, api_key, gemini_command=None, extra_env=None):
         env = dict(extra_env) if extra_env else {}
-        folders = self.window.folders()
-        if folders:
-            env["GEMINI_CLI_IDE_WORKSPACE_PATH"] = os.pathsep.join(folders)
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        if settings.get("share_workspace_folders", True):
+            folders = self.window.folders()
+            if folders:
+                env["GEMINI_CLI_IDE_WORKSPACE_PATH"] = os.pathsep.join(folders)
 
         self.client.start(api_key, gemini_command, env)
         self.loading_animation.start(self.loading_region)

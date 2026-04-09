@@ -19,5 +19,10 @@
     // If left empty, the plugin will automatically attempt to discover the CLI in common
     // installation locations (e.g., ~/.local/bin, /opt/homebrew/bin, APPDATA/npm, etc.)
     // or through the system PATH.
-    "gemini_command": ""
+    "gemini_command": "",
+
+    // Whether to automatically share all open workspace folders with the Gemini CLI.
+    // If true, the plugin injects all open folders into the `GEMINI_CLI_IDE_WORKSPACE_PATH`
+    // environment variable, allowing the AI to access the entire multi-root project space.
+    "share_workspace_folders": true
 }
