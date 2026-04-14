@@ -85,6 +85,10 @@ Gemini CLI performs various actions (tools) like reading files, searching the we
   - Allow Edit: Automatically approves "safe" read/edit operations; still prompts for "risky" commands.
   - Accept All: Automatically approves all tool calls, including shell command execution.
 
+**Select Model**
+
+Use the command palette (`Gemini: Select Model`) to choose the desired model for your current Gemini session.
+
 **Clear Session**
 
 To reset the current conversation history and start a completely fresh context, open the command palette and run **`Gemini: Clear Session`**. This will reload the agent and clear its memory for the current workspace.
