@@ -235,12 +235,16 @@ class GeminiClient:
             self.init_event.set()
         elif method in ("session/new", "session/load"):
             LOG.error("Session request failed: %s", err_msg)
+            self.session_error = True
             self.session_event.set()
 
         # Try to extract details from data
         data = error.get("data")
         if isinstance(data, dict):
             err_msg = ", ".join([f"{k}:{v}" for k, v in data.items()])
+
+        if method == "session/load":
+            return
 
         self.callbacks['on_error'](err_msg + "\n\n")
 
@@ -346,7 +350,13 @@ class GeminiClient:
 
         if self.session_id and can_load:
             LOG.info("reloading session %s", self.session_id)
+            self.session_error = False
             self._agent_session_load(self.session_id)
+            if getattr(self, "session_error", False):
+                LOG.info("Failed to load session, starting new session.")
+                self.session_id = ""
+                self.session_event.clear()
+                self._agent_session_new()
         else:
             # Clear invalid session_id if we can't load it
             self.session_id = ""
