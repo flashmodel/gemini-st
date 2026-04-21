@@ -133,6 +133,13 @@ class GeminiClient:
             if extra_env:
                 env.update(extra_env)
 
+            # Disable telemetry and memory relaunch for faster spin-up
+            env.setdefault("GEMINI_TELEMETRY_ENABLED", "false")
+            env.setdefault("GEMINI_CLI_NO_RELAUNCH", "true")
+            # Setting VITEST=true forces folderTrust=false inside the CLI,
+            # which completely bypasses the heavy workspace context scanning (GEMINI.md tree)
+            env.setdefault("VITEST", "true")
+
             if api_key:
                 env["GOOGLE_API_KEY"] = api_key
                 LOG.info("Starting Gemini CLI with custom API key from settings")
