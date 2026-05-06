@@ -2,6 +2,7 @@
 ---
 # http://www.sublimetext.com/docs/syntax.html
 name: GeminiChat
+hidden: true
 scope: text.html.markdown.geminichat
 version: 2
 
