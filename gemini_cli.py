@@ -94,6 +94,7 @@ class LoadingAnimation:
         """Start the loading animation at the specified region."""
         if not self.is_loading:
             self.is_loading = True
+            self.view.settings().set("is_loading", True)
             self.frame_index = 0
             self.region_provider = region
             self._update_animation()
@@ -101,6 +102,7 @@ class LoadingAnimation:
     def stop(self):
         """Stop the loading animation and clear the phantom."""
         self.is_loading = False
+        self.view.settings().set("is_loading", False)
         # Clear on next tick to avoid thread issues if called from background
         sublime.set_timeout(lambda: self.phantom_set.update([]), 0)
 
@@ -205,8 +207,21 @@ class ChatSession:
         """Clears the current chat session by restarting the agent."""
         LOG.info("Clearing chat session in %s", self.cwd)
 
-        # Stop current process
+        # Stop current process and animations
         self.stop()
+
+        # Clear UI phantoms
+        self.phantom_set.update([])
+        self.thought_phantom_set.update([])
+
+        # Reset state
+        self.pending_permissions = {}
+        self.shown_tool_calls = set()
+        self.thought_blocks = []
+        self.current_thought_text = ""
+        self.current_thought_id = 0
+        self.current_msgid = 0
+        self.pending_diff = {}
 
         # Clear session ID to ensure a fresh session is started
         self.chat_view.settings().erase(GEMINI_SESSION_ID)
@@ -316,6 +331,7 @@ class ChatSession:
         self.loading_animation.stop()
 
     def send_input(self, user_input):
+        self.loading_animation.start(self.loading_region)
         prompt_id = self.client.send_input(user_input)
         self.current_msgid = prompt_id
 
@@ -365,7 +381,15 @@ class ChatSession:
         """Handle stop signal from Gemini."""
         def _on_stop_process():
             self.loading_animation.stop()
-            self.chat_view.run_command("gemini_chat_append", {"text": "\n\n"})
+            # Clear interactive UI elements since the turn is over
+            self.phantom_set.update([])
+            self.pending_permissions = {}
+            self.thought_phantom_set.update([])
+
+            if stop_text == "cancelled":
+                self.chat_view.run_command("gemini_chat_append", {"text": "\n[Interrupted]\n\n"})
+            else:
+                self.chat_view.run_command("gemini_chat_append", {"text": "\n\n"})
             self.last_is_tool = False
         sublime.set_timeout(_on_stop_process, 0)
         LOG.info("prompt %s completed: %s", msg_id, stop_text)
@@ -645,7 +669,12 @@ class ChatSession:
 
     def on_exit(self):
         """Handle client exit."""
-        sublime.set_timeout(lambda: sublime.status_message("Gemini CLI session ended"), 0)
+        def _on_exit_process():
+            self.loading_animation.stop()
+            self.phantom_set.update([])
+            self.thought_phantom_set.update([])
+            sublime.status_message("Gemini CLI session ended")
+        sublime.set_timeout(_on_exit_process, 0)
 
     def show_permission_phantom(self, phantom_id, options, tool_call):
         """Display a phantom with permission options."""
@@ -817,6 +846,28 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             settings.get("gemini_command", "gemini"),
             extra_env
         )
+
+
+class GeminiInterruptCommand(sublime_plugin.WindowCommand):
+    """
+    Interrupts the current Gemini conversation.
+    """
+    def run(self):
+        window_id = self.window.id()
+        if window_id not in gemini_clients:
+            return
+
+        session = gemini_clients[window_id]
+        if session.client.inited and (session.loading_animation.is_loading or session.pending_permissions):
+            sublime.status_message("Interrupting Gemini...")
+            session.client.agent_session_cancel()
+
+    def is_enabled(self):
+        window_id = self.window.id()
+        if window_id not in gemini_clients:
+            return False
+        session = gemini_clients[window_id]
+        return bool(session.client.inited and (session.loading_animation.is_loading or session.pending_permissions))
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):

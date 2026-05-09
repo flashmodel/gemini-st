@@ -8,6 +8,10 @@
         "command": "gemini_prompt"
     },
     {
+        "caption": "Gemini: Stop Conversation\tinterrupt",
+        "command": "gemini_interrupt"
+    },
+    {
         "caption": "Gemini: Clear Session",
         "command": "gemini_clear_session"
     },

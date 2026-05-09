@@ -240,7 +240,7 @@ class GeminiClient:
         if isinstance(data, dict):
             err_msg = ", ".join([f"{k}:{v}" for k, v in data.items()])
 
-        if method == "session/load":
+        if method in ("session/load", "session/cancel"):
             return
 
         self.callbacks['on_error'](err_msg + "\n\n")
