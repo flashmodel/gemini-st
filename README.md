@@ -6,6 +6,9 @@ This package provides an agentic interface to the google Gemini CLI directly wit
 
 For detailed usage and features, please refer to the [Gemini CLI in SublimeText](https://flashmodel.github.io/using-sublime-gemini/).
 
+> [!TIP]
+> If you are a Codex or Claude Code user, please explore [TermMate in SublimeText](https://packagecontrol.io/packages/TermMate).
+
 ## Prerequisites
 This plugin relies on the Google Gemini CLI. Install the required CLI tool:
 
