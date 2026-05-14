@@ -4,7 +4,6 @@ This package provides an agentic interface to the google Gemini CLI directly wit
 
 ![Gemini Chat](screenshot.png)
 
-> [!TIP]
 > If you are a Codex or Claude Code user, please explore [TermMate in SublimeText](https://packagecontrol.io/packages/TermMate).
 
 For detailed usage and features, please refer to the [Gemini CLI for Sublime Text Guide](https://flashmodel.github.io/using-sublime-gemini/).
@@ -104,22 +103,15 @@ This package does not include a global shortcut by default. You can add key bind
 
 1.  Go to `Preferences -> Key Bindings`.
 2.  Add the following lines to your user keymap file:
-3.  now you can use the shortcut `Ctrl+Alt+G` (or `Super+Alt+G` on macOS) to start Gemini Chat
+3. Now you can use the shortcut `Primary+Alt+G` to start Gemini Chat (maps to `Ctrl+Alt+G` on Windows/Linux and `Super+Alt+G` on Mac).
 
 ```json
 [
     {
-        "keys": ["ctrl+alt+g"],
+        "keys": ["primary+alt+g"],
         "command": "gemini_cli",
-        "args": {}
-    },
-    {
-        "keys": ["super+alt+g"],
-        "command": "gemini_cli",
-        "args": {},
-        "context":
-        [
-            { "key": "setting.is_widget", "operand": false }
+        "context": [
+            { "key": "is_widget", "operand": false }
         ]
     }
 ]
