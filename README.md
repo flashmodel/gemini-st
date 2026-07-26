@@ -38,7 +38,7 @@ For example set the `"gemini_command"` in settings with:
 
 You need to authenticate before using the plugin. Supported methods:
 
-- **gemini cli auth**: Run `gemini` in your system terminal, then type `/auth` to login with your Google account.
+- **Google Account**: Since 2026-06-18, Gemini CLI no longer supports individual accounts; entberprise Gemini accounts remain supported. See the [Gemini CLI announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 - **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
 - **Google Vertex AI**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` section of your settings:
 
