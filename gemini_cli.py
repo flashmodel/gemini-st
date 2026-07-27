@@ -253,7 +253,8 @@ class ChatSession:
         self.history_stash = ""
 
         # Thought state
-        self.thought_blocks = [] # List of {"text": str, "expanded": bool, "pos": int}
+        # List of {"text": str, "expanded": bool, "region_key": str}
+        self.thought_blocks = []
         self.current_thought_text = ""
         self.current_thought_id = 0
         self.current_msgid = 0
@@ -293,6 +294,8 @@ class ChatSession:
         # Clear UI phantoms
         self.phantom_set.update([])
         self.thought_phantom_set.update([])
+        for block in self.thought_blocks:
+            self.chat_view.erase_regions(block["region_key"])
 
         # Reset state
         self.pending_permissions = {}
@@ -464,7 +467,6 @@ class ChatSession:
             # Clear interactive UI elements since the turn is over
             self.phantom_set.update([])
             self.pending_permissions = {}
-            self.thought_phantom_set.update([])
 
             if stop_text == "cancelled":
                 self.chat_view.run_command("gemini_chat_append", {"text": "\n[Interrupted]\n\n"})
@@ -662,14 +664,22 @@ class ChatSession:
             # Start a new thought block
             self.current_thought_id = self.current_msgid
             self.current_thought_text = text
-            pos = get_input_start(self.chat_view)
+
+            # Insert a real newline to serve as a moving anchor. Sublime keeps
+            # named regions in sync when output is inserted before or after it.
+            self.chat_view.run_command("gemini_chat_append", {"text": "\n"})
+            anchor_start = get_input_start(self.chat_view) - 2
+            region_key = "gemini_thought_anchor_%d" % len(self.thought_blocks)
+            self.chat_view.add_regions(
+                region_key,
+                [sublime.Region(anchor_start, anchor_start + 1)],
+                flags=sublime.HIDDEN
+            )
             self.thought_blocks.append({
                 "text": text,
                 "expanded": False,
-                "pos": pos
+                "region_key": region_key
             })
-            # New line char for the Phantom layout
-            self.chat_view.run_command("gemini_chat_append", {"text": "\n"})
         else:
             # Append to latest thought block
             self.current_thought_text += text
@@ -724,7 +734,11 @@ class ChatSession:
             </body>
             """
 
-            region = sublime.Region(block["pos"], block["pos"])
+            anchors = self.chat_view.get_regions(block["region_key"])
+            if not anchors:
+                continue
+            anchor_pos = anchors[0].end()
+            region = sublime.Region(anchor_pos, anchor_pos)
             phantoms.append(sublime.Phantom(
                 region,
                 html,
@@ -1332,7 +1346,7 @@ class GeminiChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         # The final newline is the moving anchor for the live input line.
-        self.view.insert(edit, self.view.size(), "\n\n\n")
+        self.view.insert(edit, self.view.size(), "\n\n\n\n")
         set_input_start(self.view, self.view.size() - 1)
 
         if text:
