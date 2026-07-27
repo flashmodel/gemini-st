@@ -194,8 +194,14 @@ class InputPromptMarker:
         self.phantom_id = None
 
     def update(self):
-        start = input_editable_start(self.view)
+        anchors = self.view.get_regions(GEMINI_INPUT_ANCHOR)
+        if not anchors or anchors[0].empty():
+            self.clear()
+            return
+
+        start = anchors[0].end()
         if start > self.view.size():
+            self.clear()
             return
         if self.phantom_id is not None:
             current = self.view.query_phantoms([self.phantom_id])
@@ -890,7 +896,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         if chat_view:
             chat_view.run_command(
                 "gemini_chat_append",
-                {"text": "\n\nReconnecting to Gemini CLI session...\n\n"}
+                {"text": "\nReconnecting to Gemini CLI session...\n\n"}
             )
         else:
             # Create a new view to display the result
@@ -1057,6 +1063,9 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
         window_id = window.id()
         if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            if session.chat_view.id() == view.id():
+                session.input_marker.update()
             return
 
         # Check if this window contains an orphaned chat view
@@ -1323,7 +1332,7 @@ class GeminiChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         # The final newline is the moving anchor for the live input line.
-        self.view.insert(edit, self.view.size(), "\n\n\n\n\n")
+        self.view.insert(edit, self.view.size(), "\n\n\n")
         set_input_start(self.view, self.view.size() - 1)
 
         if text:
