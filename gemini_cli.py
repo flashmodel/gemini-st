@@ -453,6 +453,14 @@ class ChatSession:
 
     def send_input(self, user_input):
         self.loading_animation.start(self.loading_region)
+        # Keep the merged thought block at the start of this response.
+        anchor_start = get_input_start(self.chat_view) - 3
+        region_key = "gemini_thought_anchor_%d" % len(self.thought_blocks)
+        self.chat_view.add_regions(
+            region_key,
+            [sublime.Region(anchor_start, anchor_start + 1)],
+            flags=sublime.HIDDEN
+        )
         prompt_id = self.client.send_input(user_input)
         self.current_msgid = prompt_id
 
@@ -703,16 +711,7 @@ class ChatSession:
             self.current_thought_id = self.current_msgid
             self.current_thought_text = text
 
-            # Insert a real newline to serve as a moving anchor. Sublime keeps
-            # named regions in sync when output is inserted before or after it.
-            self.chat_view.run_command("gemini_chat_append", {"text": "\n"})
-            anchor_start = get_input_start(self.chat_view) - 2
             region_key = "gemini_thought_anchor_%d" % len(self.thought_blocks)
-            self.chat_view.add_regions(
-                region_key,
-                [sublime.Region(anchor_start, anchor_start + 1)],
-                flags=sublime.HIDDEN
-            )
             self.thought_blocks.append({
                 "text": text,
                 "expanded": False,
