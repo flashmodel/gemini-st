@@ -300,6 +300,7 @@ class ChatSession:
         self.send_immediate = send_immediate
         self.last_is_tool = True
         self.is_startup = True
+        self.is_reconnecting = self.chat_view.settings().has(GEMINI_INPUT_START)
 
         self.cwd = cwd or get_best_dir(self.chat_view)
         session_id = self.chat_view.settings().get(GEMINI_SESSION_ID)
@@ -533,19 +534,16 @@ class ChatSession:
                 self.client.agent_session_set_model(desired_model)
                 self.client.current_model_id = desired_model
 
-        # If we are resuming an existing populated view, don't print the welcome text again.
-        is_reloading = getattr(self.client, 'ignore_messages', False)
-        if is_reloading:
+        # Only show the welcome text when initializing a brand-new chat view.
+        if self.is_reconnecting or not self.is_startup:
             if self.is_startup:
                 self.is_startup = False
                 if self.initial_msg:
-                    self.chat_view.run_command("gemini_chat_prompt", {"text": self.initial_msg})
+                    self.chat_view.run_command("append", {"characters": self.initial_msg + " "})
                     if self.send_immediate:
                         self.send_immediate = False
                         self.chat_view.run_command("gemini_send_input")
                     self.initial_msg = ""
-                else:
-                    self.chat_view.run_command("gemini_chat_prompt", {"text": ""})
             else:
                 if self.initial_msg:
                     # Append initial msg to the existing prompt
@@ -947,7 +945,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         if chat_view:
             chat_view.run_command(
                 "gemini_chat_append",
-                {"text": "\nReconnecting to Gemini CLI session...\n\n"}
+                {"text": "Reconnecting to Gemini CLI\n"}
             )
         else:
             # Create a new view to display the result
@@ -959,7 +957,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             chat_view.settings().set("line_numbers", False)
             chat_view.settings().set("word_wrap", True)
             chat_view.settings().set(GEMINI_CHAT_VIEW, True)
-            chat_view.run_command("append", {"characters": "Starting Gemini CLI session...\n"})
+            chat_view.run_command("append", {"characters": "Starting Gemini CLI...\n"})
 
         resolved_cwd = cwd or get_best_dir(chat_view)
         if resolved_cwd:
