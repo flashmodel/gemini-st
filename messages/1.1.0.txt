@@ -1,0 +1,9 @@
+Gemini CLI for Sublime Text 1.1.0
+=================================
+
+- The input marker is now rendered with phantom, keeping the chat prompt
+  stable while responses are displayed.
+- Improved thinking-process display and restored its marker correctly after
+  syntax or package reloads.
+- Personal Google Accounts with AI subscription are no longer supported
+  by Gemini CLI.
