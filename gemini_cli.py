@@ -20,7 +20,9 @@ GEMINI_INPUT_ANCHOR = "gemini_input_anchor"
 GEMINI_CHAT_VIEW = "gemini_chat_view"
 GEMINI_ACTIVE_WORKSPACE = "gemini_active_workspace"
 GEMINI_SESSION_ID = "gemini_session_id"
+GEMINI_PREFERENCES_CHANGE_KEY = "gemini_cli_packages_preferences"
 gemini_clients = {}
+preferences_redraw_scheduled = False
 
 GEMINI_APPROVE_MODE = "gemini_approve_mode"
 GEMINI_MODEL = "gemini_model"
@@ -66,12 +68,14 @@ class ApproveMode(enum.Enum):
     ALLOW_EDIT = "allow-edit"
     ACCEPT_ALL = "accept-all"
 
+
 def plugin_loaded():
     """
     Called by Sublime Text when the plugin is loaded.
     """
     settings = sublime.load_settings("GeminiCLI.sublime-settings")
     plugin.update_log_level(settings)
+    _watch_preferences()
 
 
 def plugin_unloaded():
@@ -79,6 +83,8 @@ def plugin_unloaded():
     Called by Sublime Text when the plugin is unloaded (e.g., during restart,
     package update, or application quit). Cleans up subprocesses to prevent orphans.
     """
+    _unwatch_preferences()
+
     for window_id, session in list(gemini_clients.items()):
         try:
             LOG.info("Terminating Gemini CLI session for window %s on unload", window_id)
@@ -88,6 +94,45 @@ def plugin_unloaded():
             LOG.error("Failed to terminate gemini on plugin unload: %s", e)
 
     gemini_clients.clear()
+
+
+def _watch_preferences():
+    """Watch preference changes that can invalidate minihtml."""
+    settings = sublime.load_settings("Preferences.sublime-settings")
+    settings.clear_on_change(GEMINI_PREFERENCES_CHANGE_KEY)
+    settings.add_on_change(
+        GEMINI_PREFERENCES_CHANGE_KEY,
+        _on_preferences_changed
+    )
+
+
+def _unwatch_preferences():
+    """Remove the preferences callback registered by this plugin instance."""
+    settings = sublime.load_settings("Preferences.sublime-settings")
+    settings.clear_on_change(GEMINI_PREFERENCES_CHANGE_KEY)
+
+
+def _on_preferences_changed():
+    """Schedule a marker redraw after package resources are rebuilt."""
+    global preferences_redraw_scheduled
+
+    if preferences_redraw_scheduled:
+        return
+
+    preferences_redraw_scheduled = True
+    LOG.info("Scheduling Gemini input marker redraw after preferences change")
+    sublime.set_timeout(_refresh_input_phantoms, 500)
+
+
+def _refresh_input_phantoms():
+    """Force input markers to redraw after package resource reload."""
+    global preferences_redraw_scheduled
+
+    try:
+        for window_id, session in list(gemini_clients.items()):
+            session.input_marker.update()
+    finally:
+        preferences_redraw_scheduled = False
 
 
 def _reconnect_chat_view(view):
@@ -191,7 +236,7 @@ class InputPromptMarker:
 
     def __init__(self, view):
         self.view = view
-        self.phantom_id = None
+        self.phantom_set = sublime.PhantomSet(view, "gemini_input_marker")
 
     def update(self):
         anchors = self.view.get_regions(GEMINI_INPUT_ANCHOR)
@@ -203,22 +248,15 @@ class InputPromptMarker:
         if start > self.view.size():
             self.clear()
             return
-        if self.phantom_id is not None:
-            current = self.view.query_phantoms([self.phantom_id])
-            if current and current[0].begin() == start:
-                return
-            self.view.erase_phantom_by_id(self.phantom_id)
-        self.phantom_id = self.view.add_phantom(
-            "gemini_input_marker",
+        phantom = sublime.Phantom(
             sublime.Region(start, start),
             self.HTML,
             sublime.LAYOUT_INLINE
         )
+        self.phantom_set.update([phantom])
 
     def clear(self):
-        if self.phantom_id is not None:
-            self.view.erase_phantom_by_id(self.phantom_id)
-            self.phantom_id = None
+        self.phantom_set.update([])
 
 
 class ChatSession:
