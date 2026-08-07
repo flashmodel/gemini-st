@@ -1,0 +1,9 @@
+Gemini CLI for Sublime Text 1.2.0
+=================================
+
+- Name command "Prompt" to Quick Message for edit prompts in a quick input
+  panel, with selected file ranges included as editable context references.
+- Selected chat history can now be added to the current prompt as quoted
+  context while keeping previous messages protected from edits.
+- Chat with Gemini can now be started from non-file views; file references
+  are included only when the active view is backed by a file.
