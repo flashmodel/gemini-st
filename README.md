@@ -75,9 +75,9 @@ Right-click on any folder in the sidebar and select **Set Gemini Working Space**
 
 Additionally, this plugin supports Sublime Text's multi-root workspaces. By default, it injects all currently open folders into the Gemini CLI automatically, ensuring the agent can access your entire open project across multiple roots. This can be disabled via the `share_workspace_folders` setting in `GeminiCLI.sublime-settings`.
 
-**Quick Prompt Without Chat View**
+**Quick Message from Current Tab**
 
-Use the command palette (`Gemini: Prompt`) to send a quick instruction to Gemini without opening the chat view manually.
+From the current editor tab, use the command palette (`Gemini: Quick Message`) to compose a message in input panel and send it directly to Gemini. Any selected file ranges are automatically included as editable context references; if no text is selected, no file context is added.
 
 **Gemini Approval Mode**
 
