@@ -66,7 +66,7 @@ You need to authenticate before using the plugin. Supported methods:
 You can right-click in any file, tab, or item in the sidebar, and select **Chat with Gemini agent**. This will:
 
 - Open the Gemini chat view (if not already open).
-- Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt.
+- Insert a reference to the file (`@filename`) or selected line range (`@filename#L1-10`) into the message prompt when the current view is file-backed.
 - Tagged files will be automatically sent as context to Gemini.
 
 **Set Gemini Working Space**

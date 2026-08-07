@@ -1396,45 +1396,42 @@ class GeminiChatPromptCommand(sublime_plugin.TextCommand):
             gemini_clients[window.id()].input_marker.update()
 
 
-class GeminiAddContextCommand(sublime_plugin.TextCommand):
+class GeminiAddContextCommand(sublime_plugin.WindowCommand):
     """
-    Command to add current file context to the Gemini chat prompt.
+    Command to start or focus Gemini chat with optional file context.
     """
-    def run(self, edit):
-        view = self.view
-        window = view.window()
-        if not window:
-            return
+    def run(self):
+        view = self.window.active_view()
+        file_path = view.file_name() if view else None
+        context_tag = ""
 
-        file_path = view.file_name()
-        if not file_path:
-            return
+        if file_path:
+            # Get line numbers (1-based)
+            sel = view.sel()[0]
+            row_start, _ = view.rowcol(sel.begin())
+            row_end, _ = view.rowcol(sel.end())
 
-        # Get line numbers (1-based)
-        sel = view.sel()[0]
-        row_start, _ = view.rowcol(sel.begin())
-        row_end, _ = view.rowcol(sel.end())
-
-        # Format as @file_path#L(A)-(B)
-        # Handle single line selection vs range
-        if row_start == row_end:
-            context_tag = f"@{file_path}#L{row_start + 1}"
-        else:
-            context_tag = f"@{file_path}#L{row_start + 1}-{row_end + 1}"
+            # Format as @file_path#L(A)-(B)
+            # Handle single line selection vs range
+            if row_start == row_end:
+                context_tag = f"@{file_path}#L{row_start + 1}"
+            else:
+                context_tag = f"@{file_path}#L{row_start + 1}-{row_end + 1}"
 
         # Find or create Gemini chat view
         chat_view = None
-        for v in window.views():
+        for v in self.window.views():
             if v.settings().get(GEMINI_CHAT_VIEW, False):
                 chat_view = v
                 break
 
         if not chat_view:
-            # If no chat view, create one and pass the context tag immediately
-            window.run_command("gemini_cli", {"initial_msg": context_tag})
+            # A non-file view has no context tag, but should still start chat.
+            self.window.run_command("gemini_cli", {"initial_msg": context_tag})
         else:
-            window.focus_view(chat_view)
-            self._insert_tag(chat_view, context_tag)
+            self.window.focus_view(chat_view)
+            if context_tag:
+                self._insert_tag(chat_view, context_tag)
 
     def _insert_tag(self, chat_view, context_tag):
         # Insert at the end of the view (current prompt area)
