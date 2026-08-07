@@ -6,8 +6,6 @@ This package provides an agentic interface to the google Gemini CLI directly wit
 
 > Looking to use **Claude Code or OpenAI Codex** in Sublime Text, install the [TermMate package](https://packagecontrol.io/packages/TermMate), a native multi-agent coding assistant with seamless agent switching, file context, plan mode, and session resume. [Explore TermMate’s features for Sublime Text](https://termmate.app/sublime/).
 
-For detailed usage and features, please refer to the [Gemini CLI for Sublime Text Guide](https://gemini.termmate.app).
-
 ## Prerequisites
 This plugin relies on the Google Gemini CLI. Install the required CLI tool:
 
@@ -58,6 +56,8 @@ You need to authenticate before using the plugin. Supported methods:
 3.  A new view will open for the Gemini chat.
 4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
 5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
+
+For detailed usage and features, see the [Gemini CLI for Sublime Text Guide](https://gemini.termmate.app).
 
 ## Using Gemini in Sublime Text
 
