@@ -1398,14 +1398,49 @@ class GeminiChatPromptCommand(sublime_plugin.TextCommand):
 
 class GeminiAddContextCommand(sublime_plugin.WindowCommand):
     """
-    Command to start or focus Gemini chat with optional file context.
+    Command to start or focus Gemini chat with optional context.
+    File selections are added as @-tags; selected chat history is quoted into
+    the current prompt.
     """
     def run(self):
         view = self.window.active_view()
-        file_path = view.file_name() if view else None
+        file_path = None
         context_tag = ""
+        insert_text = ""
 
-        if file_path:
+        if view and view.settings().get(GEMINI_CHAT_VIEW, False):
+            # Capture the history selection before focus/cursor handling snaps
+            # it back to the editable prompt. Clip selections at the prompt
+            # boundary so current input is never quoted as chat history.
+            editable_start = input_editable_start(view)
+            selected_parts = []
+            for selection in view.sel():
+                history_end = min(selection.end(), editable_start)
+                if not selection.empty() and selection.begin() < history_end:
+                    selected_parts.append(view.substr(sublime.Region(
+                        selection.begin(), history_end
+                    )))
+
+            selected = "\n".join(selected_parts)
+            if not selected.strip():
+                return
+
+            context_tag = "\n".join(
+                "> " + line for line in selected.splitlines()
+            )
+            input_text = view.substr(sublime.Region(
+                editable_start, view.size()
+            ))
+            insert_text = context_tag + "\n\n"
+            trailing = len(input_text) - len(input_text.rstrip("\n"))
+            # Keep an empty prompt compact; otherwise leave one complete blank
+            # line between existing input and the quote.
+            required_breaks = 1 if not input_text else max(0, 2 - trailing)
+            insert_text = "\n" * required_breaks + insert_text
+        else:
+            file_path = view.file_name() if view else None
+
+        if not insert_text and file_path:
             # Get line numbers (1-based)
             sel = view.sel()[0]
             row_start, _ = view.rowcol(sel.begin())
@@ -1417,6 +1452,7 @@ class GeminiAddContextCommand(sublime_plugin.WindowCommand):
                 context_tag = f"@{file_path}#L{row_start + 1}"
             else:
                 context_tag = f"@{file_path}#L{row_start + 1}-{row_end + 1}"
+            insert_text = context_tag + " "
 
         # Find or create Gemini chat view
         chat_view = None
@@ -1430,17 +1466,23 @@ class GeminiAddContextCommand(sublime_plugin.WindowCommand):
             self.window.run_command("gemini_cli", {"initial_msg": context_tag})
         else:
             self.window.focus_view(chat_view)
-            if context_tag:
-                self._insert_tag(chat_view, context_tag)
+            if not insert_text:
+                return
 
-    def _insert_tag(self, chat_view, context_tag):
-        # Insert at the end of the view (current prompt area)
-        end_pos = chat_view.size()
-        chat_view.run_command("insert", {"characters": context_tag + " "})
-        # Move cursor to end
-        chat_view.sel().clear()
-        chat_view.sel().add(sublime.Region(chat_view.size()))
-        chat_view.show(chat_view.size())
+            # A history selection is allowed for copying/quoting, but insert
+            # commands there are blocked to protect prior messages. Move that
+            # selection to the prompt before inserting the captured context.
+            editable_start = input_editable_start(chat_view)
+            selections = list(chat_view.sel())
+            if not (
+                len(selections) == 1
+                and selections[0].begin() >= editable_start
+            ):
+                chat_view.sel().clear()
+                chat_view.sel().add(sublime.Region(chat_view.size()))
+
+            chat_view.run_command("insert", {"characters": insert_text})
+            chat_view.show(chat_view.sel()[0].end())
 
 
 class GeminiAddFileCommand(sublime_plugin.WindowCommand):
