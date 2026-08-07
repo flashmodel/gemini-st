@@ -4,7 +4,7 @@
         "command": "gemini_cli"
     },
     {
-        "caption": "Gemini: Prompt",
+        "caption": "Gemini: Quick Message\tsend message directly",
         "command": "gemini_prompt"
     },
     {

@@ -1606,28 +1606,100 @@ class GeminiAddFileTextCommand(sublime_plugin.TextCommand):
         return not self.view.settings().get(GEMINI_CHAT_VIEW, False)
 
 
-class GeminiPromptHandler(sublime_plugin.TextInputHandler):
-    def name(self):
-        return "gemini_prompt"
-
-    def placeholder(self):
-        return "Enter your prompt for Gemini..."
-
-    def description(self, text):
-        return "Gemini: " + text if text else "Gemini Prompt"
-
-
 class GeminiPromptCommand(sublime_plugin.WindowCommand):
-    def run(self, gemini_prompt):
+    """Collect a quick prompt in an input panel and submit it."""
+
+    def run(self, gemini_prompt=None):
+        # Capture editor context before the input panel takes focus. A file is
+        # attached only when the user has made a non-empty selection.
+        source_view = self.window.active_view()
+        context_tags = self._selected_context_tags(source_view)
+
+        # Keep the argument form available for programmatic callers. Invoking
+        # the command from the command palette opens a separate, multiline
+        # input panel instead of using a TextInputHandler inside the palette.
+        if gemini_prompt is not None:
+            self._submit(gemini_prompt, context_tags)
+            return
+
+        context_text = " ".join(context_tags)
+        initial_text = f"{context_text}\n\n" if context_text else "\n\n"
+        panel = self.window.show_input_panel(
+            "Message Gemini:",
+            initial_text,
+            lambda text: self._submit_from_panel(text, context_tags),
+            None,
+            None,
+        )
+        panel.settings().set("word_wrap", True)
+        panel.settings().set("line_numbers", False)
+        panel.settings().set("gutter", False)
+        panel.settings().set("scroll_past_end", False)
+        caret = len(initial_text) if context_tags else 0
+        panel.sel().clear()
+        panel.sel().add(sublime.Region(caret))
+        panel.show(caret)
+
+    def _selected_context_tags(self, view):
+        if not view or view.settings().get(GEMINI_CHAT_VIEW, False):
+            return []
+
+        file_path = view.file_name()
+        if not file_path:
+            return []
+
+        tags = []
+        for selection in view.sel():
+            if selection.empty():
+                continue
+
+            start_row, _ = view.rowcol(selection.begin())
+            # Use the final selected character so a selection ending at the
+            # next line's first column does not attach an extra line.
+            end_row, _ = view.rowcol(selection.end() - 1)
+            if start_row == end_row:
+                tag = f"@{file_path}#L{start_row + 1}"
+            else:
+                tag = f"@{file_path}#L{start_row + 1}-{end_row + 1}"
+            if tag not in tags:
+                tags.append(tag)
+        return tags
+
+    def _submit_from_panel(self, gemini_prompt, context_tags):
+        # Context is visible and editable, so submit exactly what remains
+        # instead of restoring a tag the user deliberately removed.
+        content = gemini_prompt.strip()
+        if not content:
+            return
+
+        message = content
+        for tag in context_tags:
+            message = message.replace(tag, "", 1)
+        if not message.strip():
+            return
+
+        self._submit(content)
+
+    def _submit(self, gemini_prompt, context_tags=None):
+        gemini_prompt = gemini_prompt.strip()
         if not gemini_prompt:
             return
 
+        missing_tags = [
+            tag for tag in (context_tags or []) if tag not in gemini_prompt
+        ]
+        if missing_tags:
+            gemini_prompt = " ".join(missing_tags + [gemini_prompt])
+
         window_id = self.window.id()
+        chat_view = None
         if window_id in gemini_clients:
             session = gemini_clients[window_id]
             chat_view = session.chat_view
-            # self.window.focus_view(chat_view)
-            # Use gemini_chat_prompt to insert and then send
+            # Ensure the prompt is inserted into the live input area rather
+            # than a selection left in protected chat history.
+            chat_view.sel().clear()
+            chat_view.sel().add(sublime.Region(chat_view.size()))
             chat_view.run_command("insert", {"characters": gemini_prompt})
             chat_view.run_command("gemini_send_input")
         else:
@@ -1636,9 +1708,21 @@ class GeminiPromptCommand(sublime_plugin.WindowCommand):
                 "initial_msg": gemini_prompt,
                 "send_immediate": True
             })
+            session = gemini_clients.get(window_id)
+            if session:
+                chat_view = session.chat_view
 
-    def input(self, args):
-        return GeminiPromptHandler()
+        if not chat_view or not chat_view.is_valid():
+            return
+
+        # The callback can run while Sublime is still closing the input panel.
+        # Focus on the next UI tick so the panel cannot override the chat view.
+        def focus_chat_view():
+            target_window = chat_view.window()
+            if target_window and target_window.id() == self.window.id():
+                self.window.focus_view(chat_view)
+
+        sublime.set_timeout(focus_chat_view, 0)
 
 
 class GeminiSetWorkspaceCommand(sublime_plugin.WindowCommand):
