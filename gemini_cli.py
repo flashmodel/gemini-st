@@ -1,4 +1,5 @@
 import enum
+import json
 import logging
 import os
 import re
@@ -6,14 +7,30 @@ import re
 import sublime
 import sublime_plugin
 
-from .agentclient import GeminiClient
+from .agents import (
+    GeminiClient,
+    AntigravityClient,
+    list_antigravity_sessions,
+    get_antigravity_session_tail,
+)
+from .chat import (
+    AntigravityArtifactManager,
+    ArtifactItem,
+    AutoComplete,
+    open_local_file_link,
+    open_tool_file_link,
+)
 from . import plugin
 from .plugin import show_diff
 
 # logger by pachage name
 LOG = logging.getLogger(__package__)
 
-CHAT_VIEW_NAME = "Gemini Chat"
+CHAT_VIEW_NAME_GEMINI = "Gemini Chat"
+CHAT_VIEW_NAME_ANTIGRAVITY = "Antigravity Chat"
+CHAT_VIEW_NAMES = {CHAT_VIEW_NAME_GEMINI, CHAT_VIEW_NAME_ANTIGRAVITY}
+CHAT_VIEW_NAME = CHAT_VIEW_NAME_GEMINI
+
 PROMPT_PREFIX = "\n❯ "
 GEMINI_INPUT_START = "gemini_input_start"
 GEMINI_INPUT_ANCHOR = "gemini_input_anchor"
@@ -26,6 +43,132 @@ preferences_redraw_scheduled = False
 
 GEMINI_APPROVE_MODE = "gemini_approve_mode"
 GEMINI_MODEL = "gemini_model"
+GEMINI_EFFORT = "gemini_effort"
+GEMINI_AGENT = "gemini_agent"
+AGENT_GEMINI = "gemini"
+AGENT_ANTIGRAVITY = "antigravity"
+
+
+def get_chat_title(agent_name=None):
+    """Return the appropriate chat tab title for the given agent (default: 'Gemini Chat')."""
+    if agent_name == AGENT_ANTIGRAVITY:
+        return CHAT_VIEW_NAME_ANTIGRAVITY
+    return CHAT_VIEW_NAME_GEMINI
+
+
+def update_chat_title(view, agent=None):
+    """Directly determine current agent and update the chat view tab title.
+    Defaults to 'Gemini Chat' unless Antigravity is active.
+    """
+    if not view:
+        return
+    if hasattr(view, "is_valid") and not view.is_valid():
+        return
+
+    window = view.window() if hasattr(view, "window") else None
+    current_agent = agent
+    if not current_agent and hasattr(view, "settings"):
+        current_agent = get_current_agent(window, view)
+
+    if current_agent == AGENT_ANTIGRAVITY:
+        title = CHAT_VIEW_NAME_ANTIGRAVITY
+    else:
+        title = CHAT_VIEW_NAME_GEMINI
+
+    if hasattr(view, "name") and view.name() != title:
+        view.set_name(title)
+    elif not hasattr(view, "name"):
+        view.set_name(title)
+
+
+
+def get_current_agent(window=None, view=None):
+    """Retrieve the active agent name ('gemini' or 'antigravity')."""
+    if view and view.settings().has(GEMINI_AGENT):
+        return view.settings().get(GEMINI_AGENT)
+    if window and window.settings().has(GEMINI_AGENT):
+        return window.settings().get(GEMINI_AGENT)
+    settings = sublime.load_settings("GeminiCLI.sublime-settings")
+    return settings.get("agent", AGENT_ANTIGRAVITY)
+
+
+def get_antigravity_skip_permissions(window=None, view=None):
+    """Retrieve the setting for skipping permissions in Antigravity mode."""
+    if view and view.settings().has("antigravity_skip_permissions"):
+        return bool(view.settings().get("antigravity_skip_permissions"))
+    if window and window.settings().has("antigravity_skip_permissions"):
+        return bool(window.settings().get("antigravity_skip_permissions"))
+    settings = sublime.load_settings("GeminiCLI.sublime-settings")
+    return bool(settings.get("antigravity_skip_permissions", True))
+
+
+def get_current_effort(window=None, view=None, agent=None):
+    """Retrieve the active reasoning effort level ('low', 'medium', 'high'), or None."""
+    if not agent:
+        agent = get_current_agent(window, view)
+    agent_effort_key = f"gemini_effort_{agent}"
+    if view and view.settings().has(agent_effort_key):
+        return view.settings().get(agent_effort_key)
+    if window and window.settings().has(agent_effort_key):
+        return window.settings().get(agent_effort_key)
+    if view and view.settings().has(GEMINI_EFFORT):
+        return view.settings().get(GEMINI_EFFORT)
+    if window and window.settings().has(GEMINI_EFFORT):
+        return window.settings().get(GEMINI_EFFORT)
+    settings = sublime.load_settings("GeminiCLI.sublime-settings")
+    return settings.get("effort", None)
+
+
+def get_current_model(window=None, view=None, agent=None):
+    """Retrieve the active model for the specified or active agent."""
+    if not agent:
+        agent = get_current_agent(window, view)
+
+    agent_model_key = f"gemini_model_{agent}"
+    if view and view.settings().has(agent_model_key):
+        val = view.settings().get(agent_model_key)
+        if val:
+            return val
+    if window and window.settings().has(agent_model_key):
+        val = window.settings().get(agent_model_key)
+        if val:
+            return val
+
+    # For gemini agent, fallback to legacy GEMINI_MODEL setting if present
+    if agent == AGENT_GEMINI:
+        if view and view.settings().has(GEMINI_MODEL):
+            return view.settings().get(GEMINI_MODEL)
+        if window and window.settings().has(GEMINI_MODEL):
+            return window.settings().get(GEMINI_MODEL)
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        return settings.get("model", "default")
+
+    # For Antigravity (and other agents), default to None (let agent CLI decide)
+    return None
+
+
+def format_model_tag(model=None, effort=None):
+    """Format an in-buffer model notification tag.
+
+    Examples:
+        format_model_tag("gemini-3.8-flash", "high") -> "[Model: gemini-3.8-flash:high]"
+        format_model_tag("gemini-3.8-flash", None)   -> "[Model: gemini-3.8-flash]"
+        format_model_tag(None, "high")               -> "[Model: default:high]"
+        format_model_tag(None, None)                 -> "[Model: default]"
+    """
+    m = (
+        model.strip()
+        if (model and model.strip().lower() not in ("default", ""))
+        else "default"
+    )
+    eff = (
+        effort.strip().lower()
+        if (effort and effort.strip().lower() not in ("default", ""))
+        else None
+    )
+    if eff:
+        return f"[Model: {m}:{eff}]"
+    return f"[Model: {m}]"
 
 
 def set_input_start(view, pos):
@@ -298,30 +441,131 @@ class ChatSession:
         self.current_msgid = 0
         self.thought_phantom_set = sublime.PhantomSet(self.chat_view, "gemini_thoughts")
         self.send_immediate = send_immediate
-        self.last_is_tool = True
+        self.last_is_tool = False
         self.is_startup = True
         self.is_reconnecting = self.chat_view.settings().has(GEMINI_INPUT_START)
 
         self.cwd = cwd or get_best_dir(self.chat_view)
         session_id = self.chat_view.settings().get(GEMINI_SESSION_ID)
+        self.agent_name = get_current_agent(self.window, self.chat_view)
+        self.chat_view.settings().set(GEMINI_AGENT, self.agent_name)
+        self.update_chat_title()
 
-        # Create the Gemini client
-        self.client = GeminiClient(
-            callbacks={
-                'on_message': self.on_message,
-                'on_user_message': self.on_user_message,
-                'on_error': self.on_error,
-                'on_stop': self.on_stop,
-                'on_permission_request': self.on_permission_request,
-                'on_session_ready': self.on_session_ready,
-                'on_exit': self.on_exit,
-                'on_thought': self.on_thought,
-                'on_tool_call': self.on_tool_call
-            },
-            cwd=self.cwd,
+        # Initialize artifact manager for Antigravity
+        if self.agent_name == AGENT_ANTIGRAVITY:
+            self.artifact_manager = AntigravityArtifactManager(
+                self.chat_view, self.window, input_start_fn=get_input_start
+            )
+        else:
+            self.artifact_manager = None
+
+        # Create the agent client
+        self.client = self._create_client(
             session_id=session_id,
             ignore_history=bool(session_id)
         )
+
+    def update_chat_title(self):
+        """Update the chat view tab title based on the active agent."""
+        update_chat_title(self.chat_view, self.agent_name)
+
+    def _create_client(self, session_id=None, ignore_history=False):
+        callbacks = {
+            'on_message': self.on_message,
+            'on_user_message': self.on_user_message,
+            'on_error': self.on_error,
+            'on_stop': self.on_stop,
+            'on_permission_request': self.on_permission_request,
+            'on_session_ready': self.on_session_ready,
+            'on_exit': self.on_exit,
+            'on_thought': self.on_thought,
+            'on_tool_call': self.on_tool_call
+        }
+        if self.agent_name == AGENT_ANTIGRAVITY:
+            desired_model = get_current_model(self.window, self.chat_view, agent=AGENT_ANTIGRAVITY)
+            desired_effort = get_current_effort(self.window, self.chat_view, agent=AGENT_ANTIGRAVITY)
+            approve_mode = self.window.settings().get(GEMINI_APPROVE_MODE, ApproveMode.ALLOW_EDIT.value)
+            skip_permissions = get_antigravity_skip_permissions(self.window, self.chat_view)
+            return AntigravityClient(
+                callbacks=callbacks,
+                cwd=self.cwd,
+                session_id=session_id,
+                ignore_history=ignore_history,
+                model=desired_model,
+                approve_mode=approve_mode,
+                effort=desired_effort,
+                skip_permissions=skip_permissions
+            )
+        else:
+            return GeminiClient(
+                callbacks=callbacks,
+                cwd=self.cwd,
+                session_id=session_id,
+                ignore_history=ignore_history
+            )
+
+    def _start_client(self):
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        extra_env = settings.get("env", {})
+        if self.agent_name == AGENT_ANTIGRAVITY:
+            cmd = settings.get("antigravity_command", "").strip() or None
+        else:
+            cmd = settings.get("gemini_command", "gemini").strip() or None
+        self.start(
+            settings.get("api_key", "").strip(),
+            cmd,
+            extra_env
+        )
+
+    def switch_agent(self, new_agent):
+        """Switch the current chat session to another agent provider."""
+        if self.agent_name == new_agent:
+            sublime.status_message(f"Already using {new_agent}")
+            return
+
+        LOG.info("Switching agent from %s to %s in %s", self.agent_name, new_agent, self.cwd)
+        self.agent_name = new_agent
+        self.chat_view.settings().set(GEMINI_AGENT, new_agent)
+        self.update_chat_title()
+
+        # Stop current process and animations
+        self.stop()
+
+        # Clear UI phantoms
+        self.phantom_set.update([])
+        self.thought_phantom_set.update([])
+        for block in self.thought_blocks:
+            self.chat_view.erase_regions(block["region_key"])
+
+        # Reset state
+        self.pending_permissions = {}
+        self.shown_tool_calls = set()
+        self.thought_blocks = []
+        self.current_thought_text = ""
+        self.current_thought_id = 0
+        self.current_msgid = 0
+        self.pending_diff = {}
+
+        # Clear session ID so new agent starts fresh
+        self.chat_view.settings().erase(GEMINI_SESSION_ID)
+
+        # Update artifact manager
+        if new_agent == AGENT_ANTIGRAVITY:
+            if not self.artifact_manager:
+                self.artifact_manager = AntigravityArtifactManager(
+                    self.chat_view, self.window, input_start_fn=get_input_start
+                )
+        else:
+            if self.artifact_manager:
+                self.artifact_manager.clear()
+                self.artifact_manager = None
+
+        display_name = "Antigravity (agy)" if new_agent == AGENT_ANTIGRAVITY else "Gemini CLI"
+        self.chat_view.run_command("gemini_chat_append", {"text": f"\n\nSwitched agent to {display_name} in {self.cwd}...\n\n"})
+
+        # Reset client with NEW session
+        self.client = self._create_client(session_id=None, ignore_history=True)
+        self._start_client()
 
     def clear_session(self):
         """Clears the current chat session by restarting the agent."""
@@ -345,37 +589,20 @@ class ChatSession:
         self.current_msgid = 0
         self.pending_diff = {}
 
+        if self.artifact_manager:
+            self.artifact_manager.clear()
+
         # Clear session ID to ensure a fresh session is started
         self.chat_view.settings().erase(GEMINI_SESSION_ID)
 
-        self.chat_view.run_command("gemini_chat_append", {"text": f"\n\nGemini CLI session reset in {self.cwd}...\n\n"})
+        agent_title = "Antigravity" if self.agent_name == AGENT_ANTIGRAVITY else "Gemini CLI"
+        self.chat_view.run_command("gemini_chat_append", {"text": f"\n\n{agent_title} session reset in {self.cwd}...\n\n"})
 
         # Reset client with NEW session (session_id=None) but same cwd
-        self.client = GeminiClient(
-            callbacks={
-                'on_message': self.on_message,
-                'on_user_message': self.on_user_message,
-                'on_error': self.on_error,
-                'on_stop': self.on_stop,
-                'on_permission_request': self.on_permission_request,
-                'on_session_ready': self.on_session_ready,
-                'on_exit': self.on_exit,
-                'on_thought': self.on_thought,
-                'on_tool_call': self.on_tool_call
-            },
-            cwd=self.cwd,
-            session_id=None,
-            ignore_history=True
-        )
+        self.client = self._create_client(session_id=None, ignore_history=True)
 
         # Start again
-        settings = sublime.load_settings("GeminiCLI.sublime-settings")
-        extra_env = settings.get("env", {})
-        self.start(
-            settings.get("api_key", "").strip(),
-            settings.get("gemini_command", "gemini"),
-            extra_env
-        )
+        self._start_client()
 
     def switch_workspace(self, new_cwd):
         """Switch the session to a new working directory."""
@@ -394,31 +621,84 @@ class ChatSession:
         self.chat_view.run_command("gemini_chat_append", {"text": f"\n\nSwitching Workspace to: {new_cwd}\n\n"})
 
         # Reset client with NEW session (session_id=None) but same cwd
-        self.client = GeminiClient(
-            callbacks={
-                'on_message': self.on_message,
-                'on_user_message': self.on_user_message,
-                'on_error': self.on_error,
-                'on_stop': self.on_stop,
-                'on_permission_request': self.on_permission_request,
-                'on_session_ready': self.on_session_ready,
-                'on_exit': self.on_exit,
-                'on_thought': self.on_thought,
-                'on_tool_call': self.on_tool_call
-            },
-            cwd=self.cwd,
-            session_id=None,
-            ignore_history=True
-        )
+        self.client = self._create_client(session_id=None, ignore_history=True)
 
         # Start again
+        self._start_client()
+
+    def resume_session(self, session_id):
+        """Resume a previous Antigravity session by reconnecting to the specified session_id."""
+        LOG.info("Resuming session %s in %s", session_id, self.cwd)
+
+        # Stop current process and animations
+        self.stop()
+
+        # Clear UI phantoms
+        self.phantom_set.update([])
+        self.thought_phantom_set.update([])
+        for block in self.thought_blocks:
+            self.chat_view.erase_regions(block["region_key"])
+
+        # Reset state
+        self.pending_permissions = {}
+        self.shown_tool_calls = set()
+        self.thought_blocks = []
+        self.current_thought_text = ""
+        self.current_thought_id = 0
+        self.current_msgid = 0
+        self.pending_diff = {}
+
+        self.agent_name = AGENT_ANTIGRAVITY
+        self.chat_view.settings().set(GEMINI_AGENT, AGENT_ANTIGRAVITY)
+        self.chat_view.settings().set(GEMINI_SESSION_ID, session_id)
+        self.update_chat_title()
+        self.is_startup = False
+        self.is_reconnecting = True
+
+        if not self.artifact_manager:
+            self.artifact_manager = AntigravityArtifactManager(
+                self.chat_view, self.window, input_start_fn=get_input_start
+            )
+        else:
+            self.artifact_manager.clear()
+
         settings = sublime.load_settings("GeminiCLI.sublime-settings")
-        extra_env = settings.get("env", {})
-        self.start(
-            settings.get("api_key", "").strip(),
-            settings.get("gemini_command", "gemini"),
-            extra_env
-        )
+        history_limit = settings.get("session_history_limit", 50)
+        session_info = get_antigravity_session_tail(session_id, self.cwd, history_limit=history_limit)
+
+        banner = f"\n\n[Resuming Antigravity session {session_id[:8]}...]\n\n"
+        if not self.chat_view.settings().has(GEMINI_INPUT_START):
+            if self.cwd:
+                self.chat_view.run_command("append", {"characters": f"cwd: {self.cwd}\n"})
+            self.chat_view.run_command("append", {"characters": banner.lstrip()})
+        else:
+            self.chat_view.run_command("gemini_chat_append", {"text": banner})
+
+        if session_info and session_info.get("turns"):
+            for turn in session_info["turns"]:
+                prompt = turn.get("prompt")
+                if prompt:
+                    if not self.chat_view.settings().has(GEMINI_INPUT_START):
+                        self.chat_view.run_command("append", {"characters": PROMPT_PREFIX + prompt + "\n\n"})
+                    else:
+                        self.chat_view.run_command("gemini_chat_append", {"text": PROMPT_PREFIX + prompt + "\n\n"})
+                response = turn.get("response")
+                if response:
+                    if not self.chat_view.settings().has(GEMINI_INPUT_START):
+                        self.chat_view.run_command("append", {"characters": response + "\n\n"})
+                    else:
+                        self.chat_view.run_command("gemini_chat_append", {"text": response + "\n\n"})
+
+        if not self.chat_view.settings().has(GEMINI_INPUT_START):
+            self.chat_view.run_command("gemini_chat_prompt", {"text": ""})
+
+        # Sync artifacts for this resumed conversation
+        if self.artifact_manager:
+            self.artifact_manager.sync_and_render(session_id)
+
+        # Reset and start client
+        self.client = self._create_client(session_id=session_id, ignore_history=True)
+        self._start_client()
 
     def set_initial_msg(self, text):
         """Set or append text to initial_msg."""
@@ -454,8 +734,9 @@ class ChatSession:
 
     def send_input(self, user_input):
         self.loading_animation.start(self.loading_region)
+        self.last_is_tool = False
         # Keep the merged thought block at the start of this response.
-        anchor_start = get_input_start(self.chat_view) - 3
+        anchor_start = get_input_start(self.chat_view) - 4
         region_key = "gemini_thought_anchor_%d" % len(self.thought_blocks)
         self.chat_view.add_regions(
             region_key,
@@ -508,12 +789,17 @@ class ChatSession:
         sublime.set_timeout(_on_error_process, 0)
 
     def on_stop(self, msg_id, stop_text):
-        """Handle stop signal from Gemini."""
+        """Handle stop signal from Gemini / Antigravity."""
         def _on_stop_process():
             self.loading_animation.stop()
             # Clear interactive UI elements since the turn is over
             self.phantom_set.update([])
             self.pending_permissions = {}
+
+            # Sync and render any plan / walkthrough artifacts for Antigravity
+            if self.artifact_manager and self.client:
+                session_id = getattr(self.client, "session_id", None) or self.chat_view.settings().get(GEMINI_SESSION_ID)
+                self.artifact_manager.sync_and_render(session_id)
 
             if stop_text == "cancelled":
                 self.chat_view.run_command("gemini_chat_append", {"text": "\n[Interrupted]\n\n"})
@@ -527,12 +813,21 @@ class ChatSession:
         """Handle session ready notification."""
         self.loading_animation.stop()
 
-        # Ensure the desired model is applied
-        desired_model = self.window.settings().get(GEMINI_MODEL)
+        # Ensure the desired model and effort are applied
+        desired_model = get_current_model(self.window, self.chat_view, agent=self.agent_name)
+        desired_effort = get_current_effort(self.window, self.chat_view, agent=self.agent_name)
         if desired_model and desired_model != "default":
-            if getattr(self.client, "current_model_id", "") != desired_model:
-                self.client.agent_session_set_model(desired_model)
+            model_changed = getattr(self.client, "current_model_id", None) != desired_model
+            effort_changed = hasattr(self.client, "current_effort") and getattr(self.client, "current_effort", None) != desired_effort
+            if model_changed or effort_changed:
+                self.client.agent_session_set_model(desired_model, effort=desired_effort)
                 self.client.current_model_id = desired_model
+                if hasattr(self.client, "current_effort"):
+                    self.client.current_effort = desired_effort
+        elif hasattr(self.client, "current_effort") and getattr(self.client, "current_effort", None) != desired_effort:
+            if hasattr(self.client, "agent_session_set_effort"):
+                self.client.agent_session_set_effort(desired_effort)
+            self.client.current_effort = desired_effort
 
         # Only show the welcome text when initializing a brand-new chat view.
         if self.is_reconnecting or not self.is_startup:
@@ -556,7 +851,27 @@ class ChatSession:
 
         self.is_startup = False
         shortcut = "Command+Enter" if sublime.platform() == "osx" else "Control+Enter"
-        welcome_text = "Interactive Gemini CLI (ACP Mode)\nType your message and press %s to send.\n\n" % shortcut
+        if self.agent_name == AGENT_ANTIGRAVITY:
+            model = (
+                getattr(self.client, "current_model_id", None)
+                or get_current_model(self.window, self.chat_view, AGENT_ANTIGRAVITY)
+            )
+            effort = (
+                getattr(self.client, "current_effort", None)
+                or get_current_effort(self.window, self.chat_view, AGENT_ANTIGRAVITY)
+            )
+            if model and model != "default":
+                display = f"{model}:{effort}" if effort else model
+                header = f"Interactive Antigravity ({display})"
+            else:
+                header = "Interactive Antigravity"
+        else:
+            model = get_current_model(self.window, self.chat_view, AGENT_GEMINI)
+            if model and model != "default":
+                header = f"Interactive Gemini CLI ({model})"
+            else:
+                header = "Interactive Gemini CLI"
+        welcome_text = f"{header}\nType your message and press {shortcut} to send.\n"
         self.chat_view.run_command("append", {"characters": welcome_text})
         if self.initial_msg:
             self.chat_view.run_command("gemini_chat_prompt", {"text": self.initial_msg})
@@ -611,6 +926,27 @@ class ChatSession:
 
         tool_kind = tool_call.get("kind", "tool")
         tool_title = tool_call.get("title", tool_call.get("name", ""))
+        tool_name = tool_call.get("name", "")
+        params = tool_call.get("parameters", tool_call.get("args", {}))
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except Exception:
+                params = {}
+
+        # Normalize file tool kinds and target file paths
+        if tool_kind == "tool" and tool_name:
+            if tool_name in ("view_file", "read_file", "Read", "ViewFile"):
+                tool_kind = "read"
+                if not tool_title or tool_title == tool_name:
+                    tool_title = params.get("AbsolutePath") or params.get("TargetFile") or params.get("file_path") or ""
+            elif tool_name in (
+                "write_to_file", "replace_file_content", "edit_file",
+                "Edit", "Write", "WriteFile", "EditFile"
+            ):
+                tool_kind = "edit"
+                if not tool_title or tool_title == tool_name:
+                    tool_title = params.get("TargetFile") or params.get("AbsolutePath") or params.get("file_path") or ""
 
         if tool_kind == "execute" and tool_title:
             # Remove content within [ ] from the execution title
@@ -624,13 +960,14 @@ class ChatSession:
                 rest_of_code = title_lines[1] if len(title_lines) > 1 else ""
                 # Indent the rest of the code by 4 spaces to use Markdown's indent-based code block
                 indented_code = "\n".join("    " + l for l in rest_of_code.split("\n"))
-                formatted_title = f"⏺ {tool_kind.capitalize()} {first_line}\n\n{indented_code}\n"
+                formatted_title = f"⏺ {tool_kind.capitalize()} {first_line}\n\n{indented_code}"
             else:
                 formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
+
         # Determine prefix based on previous output type
         view = self.chat_view
         prefix = ""
-        insert_pos = get_input_start(view, 0)
+        insert_pos = get_input_start(view, 0) - 1
 
         if insert_pos > 0:
             # Read up to 2 characters before the insertion point
@@ -641,10 +978,9 @@ class ChatSession:
             if last_char != "\n":
                 prefix = "\n"
 
-            if not self.last_is_tool:
-                if last_chars != "\n\n":
-                    # Ensure a blank line if previous wasn't a tool and no blank line exists
-                    prefix += "\n"
+            if not self.last_is_tool and last_chars != "\n\n":
+                # Ensure a blank line if previous wasn't a tool and no blank line exists
+                prefix += "\n"
 
         selected_text = f"{prefix}{formatted_title}\n"
         view.run_command("gemini_chat_append", {"text": selected_text})
@@ -689,7 +1025,14 @@ class ChatSession:
         sublime.set_timeout(lambda: self._on_thought_process(text), 0)
 
     def on_tool_call(self, tool_call):
-        """Handle tool call update from Gemini."""
+        """Handle tool call update from Gemini or Antigravity."""
+        # Ensure loading animation is active when a tool call arrives
+        sublime.set_timeout(lambda: self.loading_animation.start(self.loading_region), 0)
+
+        if self.artifact_manager:
+            self.artifact_manager.record_from_tool_call(tool_call)
+            if tool_call.get("status") != "in_progress" and self.artifact_manager.pending_render:
+                sublime.set_timeout(self.artifact_manager.render_pending_artifacts, 0)
         if tool_call.get("status") == "in_progress":
             sublime.set_timeout(lambda: self._output_tool_call_text(tool_call), 0)
 
@@ -923,7 +1266,7 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
     """
     A Sublime Text plugin command for calling the Gemini CLI with ACP protocol.
     """
-    def run(self, initial_msg="", send_immediate=False, view_id=None, cwd=None):
+    def run(self, initial_msg="", send_immediate=False, view_id=None, cwd=None, session_id=None):
         # Check if a client already exists for this window
         window_id = self.window.id()
         if window_id in gemini_clients:
@@ -931,7 +1274,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
             for view in self.window.views():
                 if view.settings().get(GEMINI_CHAT_VIEW, False):
                     self.window.focus_view(view)
-                    sublime.status_message("Gemini: Already active in this window.")
+                    if session_id:
+                        gemini_clients[window_id].resume_session(session_id)
+                    else:
+                        sublime.status_message("Gemini: Already active in this window.")
                     return
             # If client exists but no view found, clean up
             del gemini_clients[window_id]
@@ -943,24 +1289,36 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
                 chat_view = None
 
         if chat_view:
+            agent = get_current_agent(self.window, chat_view)
+            update_chat_title(chat_view, agent)
+            agent_title = "Antigravity" if agent == AGENT_ANTIGRAVITY else "Gemini CLI"
             chat_view.run_command(
                 "gemini_chat_append",
-                {"text": "Reconnecting to Gemini CLI\n"}
+                {"text": f"Reconnecting to {agent_title}\n"}
             )
         else:
             # Create a new view to display the result
+            if session_id:
+                agent = AGENT_ANTIGRAVITY
+            else:
+                agent = get_current_agent(self.window)
+            agent_title = "Antigravity" if agent == AGENT_ANTIGRAVITY else "Gemini CLI"
             chat_view = self.window.new_file()
-            chat_view.set_name(CHAT_VIEW_NAME)
+            update_chat_title(chat_view, agent)
             chat_view.set_scratch(True)
             chat_view.set_syntax_file("Packages/GeminiCLI/GeminiChat.sublime-syntax")
             chat_view.settings().set("draw_minimap", False)
             chat_view.settings().set("line_numbers", False)
             chat_view.settings().set("word_wrap", True)
             chat_view.settings().set(GEMINI_CHAT_VIEW, True)
-            chat_view.run_command("append", {"characters": "Starting Gemini CLI...\n"})
+            chat_view.settings().set(GEMINI_AGENT, agent)
+            if session_id:
+                chat_view.settings().set(GEMINI_SESSION_ID, session_id)
+            else:
+                chat_view.run_command("append", {"characters": f"Starting {agent_title}...\n"})
 
         resolved_cwd = cwd or get_best_dir(chat_view)
-        if resolved_cwd:
+        if resolved_cwd and not session_id:
             if chat_view.settings().has(GEMINI_INPUT_START):
                 chat_view.run_command(
                     "gemini_chat_append",
@@ -973,13 +1331,10 @@ class GeminiCliCommand(sublime_plugin.WindowCommand):
         session = ChatSession(self.window, chat_view, initial_msg=initial_msg, send_immediate=send_immediate, cwd=resolved_cwd)
         gemini_clients[window_id] = session
 
-        settings = sublime.load_settings("GeminiCLI.sublime-settings")
-        extra_env = settings.get("env", {})
-        session.start(
-            settings.get("api_key", "").strip(),
-            settings.get("gemini_command", "gemini"),
-            extra_env
-        )
+        if session_id:
+            session.resume_session(session_id)
+        else:
+            session._start_client()
 
 
 class GeminiInterruptCommand(sublime_plugin.WindowCommand):
@@ -992,16 +1347,18 @@ class GeminiInterruptCommand(sublime_plugin.WindowCommand):
             return
 
         session = gemini_clients[window_id]
-        if session.client.inited and (session.loading_animation.is_loading or session.pending_permissions):
-            sublime.status_message("Interrupting Gemini...")
-            session.client.agent_session_cancel()
+        client = getattr(session, "client", None)
+        if client and getattr(client, "inited", False) and (session.loading_animation.is_loading or session.pending_permissions):
+            sublime.status_message("Interrupting agent...")
+            client.agent_session_cancel()
 
     def is_enabled(self):
         window_id = self.window.id()
         if window_id not in gemini_clients:
             return False
         session = gemini_clients[window_id]
-        return bool(session.client.inited and (session.loading_animation.is_loading or session.pending_permissions))
+        client = getattr(session, "client", None)
+        return bool(client and getattr(client, "inited", False) and (session.loading_animation.is_loading or session.pending_permissions))
 
 
 class GeminiSendInputCommand(sublime_plugin.TextCommand):
@@ -1127,7 +1484,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         """
         Cleanup session when the chat view is closed.
         """
-        if view.name() == CHAT_VIEW_NAME:
+        if view.settings().get(GEMINI_CHAT_VIEW, False) or view.name() in CHAT_VIEW_NAMES:
             window = view.window()
             if window is None:
                 window = sublime.active_window()
@@ -1147,7 +1504,7 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         Restrict cursor movement to the editable area.
         Allows selecting history for copy, but prevents placing the caret in history.
         """
-        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() != CHAT_VIEW_NAME:
+        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() not in CHAT_VIEW_NAMES:
             return
         if not view.settings().has(GEMINI_INPUT_START):
             return
@@ -1180,8 +1537,44 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
     def on_text_command(self, view, command_name, args):
         """Intercept text commands to protect content before prompt area."""
         # Only monitor Gemini chat views
-        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() != CHAT_VIEW_NAME:
+        if not view.settings().get(GEMINI_CHAT_VIEW, False) and view.name() not in CHAT_VIEW_NAMES:
             return None
+
+        # Double-click on a Markdown file link -> open file and jump to line
+        if (
+            command_name == "drag_select"
+            and args
+            and not args.get("extend", False)
+            and not args.get("additive", False)
+        ):
+            is_word_select = args.get("by") == "words"
+            if is_word_select:
+                event = args.get("event", {})
+                x, y = event.get("x"), event.get("y")
+                if x is not None and y is not None:
+                    click_point = view.window_to_text((x, y))
+                    if click_point is not None:
+                        window = view.window() or sublime.active_window()
+                        if window:
+                            # 1. Double-click on Markdown file link ([...](path#L10) or file://)
+                            if open_local_file_link(
+                                view, click_point, window=window
+                            ):
+                                return ("noop", {})
+
+                            session = gemini_clients.get(window.id())
+                            cwd = getattr(session, "cwd", None)
+
+                            # 2. Double-click on tool target file (⏺ Read /path/to/file) or diff hunk (@@ ... @@)
+                            if open_tool_file_link(
+                                view, click_point, cwd=cwd, window=window
+                            ):
+                                return ("noop", {})
+
+                            # 3. Double-click on Antigravity artifact (▣ Plan: ...)
+                            if session and session.artifact_manager:
+                                if session.artifact_manager.open_artifact_at(click_point):
+                                    return ("noop", {})
 
         editable_start = input_editable_start(view)
 
@@ -1240,106 +1633,32 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
 
     def on_query_completions(self, view, prefix, locations):
         """
-        Provide filename completions when typing '@' in the prompt area.
-        Shows three categories: open files, current directory files, and subdirectories.
+        Provide filename and directory completions when typing '@' in the prompt area.
+        Delegates to AutoComplete for path-segmented completions with multi-level
+        directory drilling and multi-workspace routing.
         """
         if not view.settings().get(GEMINI_CHAT_VIEW, False):
             return None
 
-        # Check if in editable area
         editable_start = input_editable_start(view)
-        pos = locations[0]
-
-        if pos < editable_start:
+        if editable_start is None:
             return None
 
-        # Check if the prefix is preceded by '@'
-        trigger_pos = pos - len(prefix) - 1
-        if trigger_pos < 0 or view.substr(trigger_pos) != '@':
-            return None
-
-        completions = []
-        window = view.window()
-        if not window:
-            return None
-
-        # Get current directory (first workspace folder)
-        current_dir = None
-        folders = window.folders()
-        if folders:
-            current_dir = folders[0]
-
-        # Category 1: Currently open files
-        seen_files = set()
-        for v in window.views():
-            file_path = v.file_name()
-            if not file_path:
-                continue
-
-            # Skip the chat view itself
-            if v.settings().get(GEMINI_CHAT_VIEW, False):
-                continue
-
-            if file_path in seen_files:
-                continue
-
-            seen_files.add(file_path)
-            file_name = os.path.basename(file_path)
-
-            # Use relative path as hint if available
-            rel_path = file_name
-            if current_dir and file_path.startswith(current_dir):
-                rel_path = os.path.relpath(file_path, current_dir)
-
-            completions.append(sublime.CompletionItem(
-                file_name,
-                annotation=f"📂 {rel_path}",
-                completion=file_path,
-                kind=sublime.KIND_VARIABLE
-            ))
-
-        # Category 2: Files in current directory
-        if current_dir and os.path.isdir(current_dir):
-            try:
-                for item in os.listdir(current_dir):
-                    item_path = os.path.join(current_dir, item)
-                    if os.path.isfile(item_path) and not item.startswith('.'):
-                        if item_path not in seen_files:
-                            seen_files.add(item_path)
-                            completions.append(sublime.CompletionItem(
-                                item,
-                                annotation="📄 current dir",
-                                completion=item_path,
-                                kind=sublime.KIND_AMBIGUOUS
-                            ))
-            except OSError:
-                pass
-
-        # Category 3: Subdirectories in current directory
-        if current_dir and os.path.isdir(current_dir):
-            try:
-                for item in os.listdir(current_dir):
-                    item_path = os.path.join(current_dir, item)
-                    if os.path.isdir(item_path) and not item.startswith('.'):
-                        completions.append(sublime.CompletionItem(
-                            item + "/",
-                            annotation="📁 subdirectory",
-                            completion=item_path + "/",
-                            kind=sublime.KIND_NAMESPACE
-                        ))
-            except OSError:
-                pass
-
-        return sublime.CompletionList(completions, flags=sublime.INHIBIT_WORD_COMPLETIONS)
+        return AutoComplete.generate_completions(
+            view=view,
+            locations=locations,
+            editable_start=editable_start,
+            chat_view_flag=GEMINI_CHAT_VIEW,
+            chat_workspace_key=GEMINI_ACTIVE_WORKSPACE,
+        )
 
     def on_modified_async(self, view):
         """
-        Trigger autocompletion immediately when '@' is typed.
+        Trigger autocompletion immediately when '@' or a directory '/' is typed.
         """
         if not view.settings().get(GEMINI_CHAT_VIEW, False):
             return
 
-        # Check if the last character typed was '@'
         sel = view.sel()
         if not sel:
             return
@@ -1348,9 +1667,8 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
         if pos <= 0:
             return
 
-        # Check if in editable area
         editable_start = input_editable_start(view)
-        if pos < editable_start:
+        if editable_start is None or pos < editable_start:
             return
 
         last_char = view.substr(pos - 1)
@@ -1359,8 +1677,10 @@ class GeminiChatViewListener(sublime_plugin.EventListener):
             view.run_command("auto_complete", {
                 "disable_auto_insert": True,
                 "api_completions_only": True,
-                "next_completion_if_showing": False
+                "next_completion_if_showing": False,
             })
+        elif last_char == '/':
+            AutoComplete.check_cascade_trigger(view, editable_start)
 
 
 class GeminiChatAppendCommand(sublime_plugin.TextCommand):
@@ -1381,7 +1701,7 @@ class GeminiChatPromptCommand(sublime_plugin.TextCommand):
 
     def run(self, edit, text):
         # The final newline is the moving anchor for the live input line.
-        self.view.insert(edit, self.view.size(), "\n\n\n\n")
+        self.view.insert(edit, self.view.size(), "\n\n\n\n\n")
         set_input_start(self.view, self.view.size() - 1)
 
         if text:
@@ -1797,6 +2117,15 @@ class GeminiSetApproveModeCommand(sublime_plugin.WindowCommand):
     """Set permission approve mode for the current Gemini session."""
     def run(self, mode):
         self.window.settings().set(GEMINI_APPROVE_MODE, mode)
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            if hasattr(session, "client") and session.client:
+                if hasattr(session.client, "agent_session_set_approve_mode"):
+                    skip_perm = get_antigravity_skip_permissions(self.window, getattr(session, "chat_view", None))
+                    session.client.agent_session_set_approve_mode(mode, skip_permissions=skip_perm)
+                elif hasattr(session.client, "approve_mode"):
+                    session.client.approve_mode = mode
         sublime.status_message(f"Approve mode set to: {mode}")
 
     def input(self, args):
@@ -1806,48 +2135,163 @@ class GeminiSetApproveModeCommand(sublime_plugin.WindowCommand):
         return None
 
 
+class GeminiSetEffortListHandler(sublime_plugin.ListInputHandler):
+    def __init__(self, current_effort=None, selected_model=None, supported_efforts=None, window=None):
+        self.current_effort = current_effort
+        self.selected_model = selected_model
+        self.supported_efforts = supported_efforts
+        self.window = window or (sublime.active_window() if sublime else None)
+
+    def name(self):
+        return "effort"
+
+    def list_items(self):
+        preset_descriptions = {
+            "low": "Fast responses with light reasoning",
+            "medium": "Balanced speed and reasoning depth",
+            "high": "Deep reasoning for complex coding tasks",
+        }
+        presets = []
+        if self.supported_efforts:
+            efforts = list(self.supported_efforts)
+            if "medium" in efforts:
+                efforts.remove("medium")
+                efforts.insert(0, "medium")
+            for eff in efforts:
+                desc = preset_descriptions.get(eff, f"{eff.capitalize()} reasoning depth")
+                presets.append((f"{eff}: ({desc})", eff))
+        else:
+            presets = [
+                ("default: (Let agent decide / model default)", ""),
+                ("low: (Fast responses with light reasoning)", "low"),
+                ("medium: (Balanced speed and reasoning depth)", "medium"),
+                ("high: (Deep reasoning for complex coding tasks)", "high"),
+            ]
+
+        if self.current_effort:
+            for i, item in enumerate(presets):
+                if item[1] == self.current_effort:
+                    presets.insert(0, presets.pop(i))
+                    break
+
+        return presets
+
+    def placeholder(self):
+        if self.current_effort:
+            return f" ( current: {self.current_effort} ); select reasoning effort"
+        return "select reasoning effort"
+
+    def description(self, value, text):
+        return f"Reasoning Effort: {value}" if value else "Reasoning Effort: default"
+
+
 class GeminiSetModelListHandler(sublime_plugin.ListInputHandler):
-    def __init__(self, available_models, current_model):
+    def __init__(self, available_models, current_model, window=None):
         self.available_models = available_models
         self.current_model = current_model
+        self.window = window or (sublime.active_window() if sublime else None)
 
     def name(self):
         return "model"
+
+    def next_input(self, args):
+        model = args.get("model")
+        if not model or model == "default":
+            return None
+
+        window = self.window or (sublime.active_window() if sublime else None)
+        agent = get_current_agent(window)
+        supports_effort = False
+        supported_efforts = None
+        if agent == AGENT_ANTIGRAVITY:
+            if self.available_models:
+                for m in self.available_models:
+                    if m.get("modelId") == model or m.get("value") == model:
+                        supports_effort = m.get("supportsEffort", False)
+                        supported_efforts = m.get("supportedReasoningEfforts")
+                        break
+            else:
+                supports_effort = True
+        elif self.available_models:
+            for m in self.available_models:
+                if (m.get("modelId") == model or m.get("value") == model) and (m.get("supportsEffort") or m.get("supportedReasoningEfforts")):
+                    supports_effort = True
+                    supported_efforts = m.get("supportedReasoningEfforts")
+                    break
+
+        if supports_effort:
+            current_effort = get_current_effort(window, agent=agent)
+            return GeminiSetEffortListHandler(current_effort=current_effort, selected_model=model, supported_efforts=supported_efforts, window=window)
+        return None
 
     def list_items(self):
         items = []
         for m in self.available_models:
             name = m.get("name", m.get("modelId", ""))
             desc = m.get("description", "")
-            if desc:
+            if desc and not name.endswith(f"({desc})"):
                 name = f"{name}: ({desc})"
             items.append((name, m.get("modelId", "")))
 
         if self.current_model:
+            window = self.window or (sublime.active_window() if sublime else None)
+            agent = get_current_agent(window)
+            current_effort = get_current_effort(window, agent=agent)
+
+            supports_effort = False
+            for m in self.available_models:
+                m_id = m.get("modelId") or m.get("value")
+                if m_id == self.current_model and (
+                    m.get("supportsEffort") or m.get("supportedReasoningEfforts")
+                ):
+                    supports_effort = True
+                    break
+            if not self.available_models and agent == AGENT_ANTIGRAVITY:
+                supports_effort = True
+
             for i, item in enumerate(items):
-                if item[1] == self.current_model:
-                    items.insert(0, items.pop(i))
+                is_match = (
+                    item[1] == self.current_model
+                    or (self.current_model in ("default", "") and item[1] == "")
+                )
+                if is_match:
+                    name, val = items.pop(i)
+                    if supports_effort and current_effort and val and val != "default":
+                        name = f"{name}\t{current_effort}"
+                    items.insert(0, (name, val))
                     break
 
         return items
 
     def placeholder(self):
-        if self.current_model:
+        if self.current_model and self.current_model != "default":
             return f" ( {self.current_model} ); select a model"
         return "select a model"
 
 
 class GeminiSetModelTextHandler(sublime_plugin.TextInputHandler):
-    def __init__(self, current_model):
+    def __init__(self, current_model, window=None):
         self.current_model = current_model
+        self.window = window or (sublime.active_window() if sublime else None)
 
     def name(self):
         return "model"
 
+    def next_input(self, args):
+        model = args.get("model")
+        if not model or model == "default":
+            return None
+        window = self.window or (sublime.active_window() if sublime else None)
+        agent = get_current_agent(window)
+        if agent == AGENT_ANTIGRAVITY:
+            current_effort = get_current_effort(window, agent=agent)
+            return GeminiSetEffortListHandler(current_effort=current_effort, selected_model=model, window=window)
+        return None
+
     def placeholder(self):
-        if self.current_model:
+        if self.current_model and self.current_model != "default":
             return f"Enter model ID (current: {self.current_model})"
-        return "Enter model ID (e.g., gemini-2.5-pro)"
+        return "Enter model ID (e.g., gemini-3.8-flash, or 'default')"
 
     def description(self, text):
         return "Set Model: " + text if text else "Set Model"
@@ -1857,36 +2301,171 @@ class GeminiSetModelTextHandler(sublime_plugin.TextInputHandler):
 
 
 class GeminiSetModelCommand(sublime_plugin.WindowCommand):
-    """Set the model for the current Gemini session."""
-    def run(self, model):
-        if not model:
-            model = "default"
+    """Set the model and optional reasoning effort for the current session."""
+    def run(self, model=None, effort=None):
+        agent = get_current_agent(self.window)
+        agent_title = "Antigravity" if agent == AGENT_ANTIGRAVITY else "Gemini"
+        agent_model_key = f"gemini_model_{agent}"
+        agent_effort_key = f"gemini_effort_{agent}"
 
-        self.window.settings().set(GEMINI_MODEL, model.strip())
-        sublime.status_message(f"Gemini model set to: {model.strip()}")
+        if not model or model.strip().lower() in ("default", ""):
+            self.window.settings().erase(agent_model_key)
+            if agent == AGENT_GEMINI:
+                self.window.settings().erase(GEMINI_MODEL)
+            target_model = None
+            status_msg = f"{agent_title} model set to: default (agent decided)"
+        else:
+            model = model.strip()
+            self.window.settings().set(agent_model_key, model)
+            self.window.settings().set(GEMINI_MODEL, model)
+            target_model = model
+            status_msg = f"{agent_title} model set to: {model}"
+
+        target_effort = None
+        if effort is not None:
+            effort = effort.strip().lower()
+            if effort in ("", "default"):
+                self.window.settings().erase(agent_effort_key)
+                self.window.settings().erase(GEMINI_EFFORT)
+                target_effort = None
+                if target_model:
+                    status_msg += " (effort: default)"
+            else:
+                self.window.settings().set(agent_effort_key, effort)
+                self.window.settings().set(GEMINI_EFFORT, effort)
+                target_effort = effort
+                status_msg += f" (effort: {effort})"
+        else:
+            target_effort = get_current_effort(self.window, agent=agent)
+
+        sublime.status_message(status_msg)
+        LOG.info("%s", status_msg)
 
         window_id = self.window.id()
         if window_id in gemini_clients:
             session = gemini_clients[window_id]
-            if getattr(session, "client", None) and session.client.session_id:
-                session.client.agent_session_set_model(model.strip())
-                session.client.current_model_id = model.strip()
+            client = getattr(session, "client", None)
+            if client:
+                if getattr(client, "available_models", None) and target_model:
+                    for m in client.available_models:
+                        if (m.get("modelId") or m.get("value")) == target_model:
+                            if (
+                                not m.get("supportsEffort")
+                                and not m.get("supportedReasoningEfforts")
+                            ):
+                                target_effort = None
+                            break
+                client.current_model_id = target_model
+                if hasattr(client, "current_effort"):
+                    client.current_effort = target_effort
+                if (
+                    getattr(client, "session_id", None)
+                    or agent == AGENT_ANTIGRAVITY
+                ):
+                    client.agent_session_set_model(
+                        target_model, effort=target_effort
+                    )
+
+            chat_view = getattr(session, "chat_view", None)
+            if (
+                chat_view
+                and chat_view.is_valid()
+                and (
+                    not getattr(session, "is_startup", False)
+                    or chat_view.settings().has(GEMINI_INPUT_START)
+                )
+            ):
+                tag = format_model_tag(target_model, target_effort)
+                chat_view.run_command("gemini_chat_append", {"text": f"{tag}\n\n"})
 
     def input(self, args):
         if "model" not in args:
             window_id = self.window.id()
-            current_model = self.window.settings().get(GEMINI_MODEL, "default")
+            agent = get_current_agent(self.window)
+            current_model = get_current_model(self.window, agent=agent) or "default"
 
             if window_id in gemini_clients:
                 session = gemini_clients[window_id]
                 client = getattr(session, "client", None)
                 if client and getattr(client, "available_models", None):
-                    if current_model == "default" and getattr(client, "current_model_id", ""):
+                    if current_model == "default" and getattr(client, "current_model_id", None):
                         current_model = client.current_model_id
-                    return GeminiSetModelListHandler(client.available_models, current_model)
+                    return GeminiSetModelListHandler(client.available_models, current_model, window=self.window)
 
-            return GeminiSetModelTextHandler(current_model)
+            return GeminiSetModelTextHandler(current_model, window=self.window)
         return None
+
+
+class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
+    """Set the reasoning effort for the current agent session."""
+    def run(self, effort=None):
+        if effort is not None:
+            effort = effort.strip().lower()
+
+        agent = get_current_agent(self.window)
+        agent_effort_key = f"gemini_effort_{agent}"
+
+        if not effort or effort == "default":
+            self.window.settings().erase(agent_effort_key)
+            self.window.settings().erase(GEMINI_EFFORT)
+            target_effort = None
+            effort_label = "default (agent decided)"
+        else:
+            self.window.settings().set(agent_effort_key, effort)
+            self.window.settings().set(GEMINI_EFFORT, effort)
+            target_effort = effort
+            effort_label = effort
+
+        agent_title = "Antigravity" if agent == AGENT_ANTIGRAVITY else "Gemini"
+        sublime.status_message(f"{agent_title} reasoning effort set to: {effort_label}")
+        LOG.info("%s reasoning effort set to: %s", agent_title, effort_label)
+
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            client = getattr(session, "client", None)
+            if client:
+                if hasattr(client, "agent_session_set_effort"):
+                    client.agent_session_set_effort(target_effort)
+                elif hasattr(client, "current_effort"):
+                    client.current_effort = target_effort
+
+            current_model = None
+            if client:
+                current_model = getattr(client, "current_model_id", None)
+            if not current_model:
+                current_model = get_current_model(self.window, agent=agent)
+
+            chat_view = getattr(session, "chat_view", None)
+            if (
+                chat_view
+                and chat_view.is_valid()
+                and (
+                    not getattr(session, "is_startup", False)
+                    or chat_view.settings().has(GEMINI_INPUT_START)
+                )
+            ):
+                tag = format_model_tag(current_model, target_effort)
+                chat_view.run_command("gemini_chat_append", {"text": f"{tag}\n\n"})
+
+    def input(self, args):
+        if "effort" not in args:
+            agent = get_current_agent(self.window)
+            current_effort = get_current_effort(self.window, agent=agent)
+            return GeminiSetEffortListHandler(current_effort=current_effort, window=self.window)
+        return None
+
+    def is_enabled(self):
+        agent = get_current_agent(self.window)
+        if agent == AGENT_ANTIGRAVITY:
+            return True
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            client = getattr(session, "client", None)
+            if client and (hasattr(client, "agent_session_set_effort") or hasattr(client, "current_effort")):
+                return True
+        return False
 
 
 class GeminiClearSessionCommand(sublime_plugin.WindowCommand):
@@ -1909,3 +2488,123 @@ class GeminiClearSessionCommand(sublime_plugin.WindowCommand):
     def is_enabled(self):
         # Only enable if there's an active session
         return self.window.id() in gemini_clients
+
+
+class GeminiSwitchAgentListHandler(sublime_plugin.ListInputHandler):
+    def __init__(self, current_agent):
+        self.current_agent = current_agent
+
+    def name(self):
+        return "agent"
+
+    def list_items(self):
+        items = [
+            ("Antigravity (antigravity)", AGENT_ANTIGRAVITY),
+            ("Gemini CLI (gemini)", AGENT_GEMINI),
+        ]
+        if self.current_agent:
+            for i, item in enumerate(items):
+                if item[1] == self.current_agent:
+                    items.insert(0, items.pop(i))
+                    break
+        return items
+
+    def placeholder(self):
+        if self.current_agent:
+            return f" ( current: {self.current_agent} ); select agent provider"
+        return "select agent provider"
+
+
+class GeminiSwitchAgentCommand(sublime_plugin.WindowCommand):
+    """Switch between Gemini CLI and Antigravity agents."""
+    def run(self, agent):
+        if not agent:
+            return
+        agent = agent.strip().lower()
+        if agent not in (AGENT_GEMINI, AGENT_ANTIGRAVITY):
+            sublime.error_message(f"Unknown agent: '{agent}'. Valid options are '{AGENT_GEMINI}' or '{AGENT_ANTIGRAVITY}'.")
+            return
+
+        self.window.settings().set(GEMINI_AGENT, agent)
+        sublime.status_message(f"Agent switched to: {agent}")
+        LOG.info("Agent provider switched to: %s", agent)
+
+        window_id = self.window.id()
+        if window_id in gemini_clients:
+            session = gemini_clients[window_id]
+            session.switch_agent(agent)
+
+    def input(self, args):
+        if "agent" not in args:
+            current_agent = get_current_agent(self.window)
+            return GeminiSwitchAgentListHandler(current_agent)
+        return None
+
+
+class GeminiResumeSessionCommand(sublime_plugin.WindowCommand):
+    """
+    Shows a quick panel listing past Antigravity sessions for the current workspace.
+    Resumes conversation in an active or newly opened chat view.
+    Only supported for Antigravity (agy).
+    """
+    _PREVIEW_LEN = 140
+
+    def _get_cwd(self, session):
+        if session is not None:
+            return session.cwd or get_best_dir(session.chat_view)
+        custom_cwd = self.window.settings().get(GEMINI_ACTIVE_WORKSPACE)
+        if custom_cwd and os.path.isdir(custom_cwd):
+            return custom_cwd
+        folders = self.window.folders()
+        return folders[0] if folders else ""
+
+    def run(self):
+        import datetime
+        window_id = self.window.id()
+        session = gemini_clients.get(window_id)
+        cwd = self._get_cwd(session)
+
+        # 1. Fetch sessions for cwd
+        sessions = list_antigravity_sessions(cwd)
+        if not sessions and cwd:
+            sessions = list_antigravity_sessions(None)
+
+        if not sessions:
+            sublime.status_message("No past Antigravity sessions found")
+            return
+
+        current_session_id = None
+        if session and session.client:
+            current_session_id = getattr(session.client, "session_id", None) or session.chat_view.settings().get(GEMINI_SESSION_ID)
+
+        items = []
+        for s in sessions:
+            sid = s["session_id"]
+            summary = s["summary"] or "(empty)"
+            if len(summary) > self._PREVIEW_LEN:
+                summary = summary[:self._PREVIEW_LEN] + "…"
+            dt = datetime.datetime.fromtimestamp(s["mtime"]).strftime("%Y-%m-%d %H:%M") if s.get("mtime") else ""
+            base_title = f"{dt}  [{sid[:8]}]".strip() if dt else f"[{sid[:8]}]"
+            title = f"{base_title}\t⦿" if sid == current_session_id else base_title
+            items.append([title, summary])
+
+        def on_select(index):
+            if index < 0:
+                return
+            chosen = sessions[index]
+            chosen_id = chosen["session_id"]
+            if chosen_id == current_session_id:
+                sublime.status_message("Already on that session")
+                return
+
+            self.window.settings().set(GEMINI_AGENT, AGENT_ANTIGRAVITY)
+            active_session = gemini_clients.get(window_id)
+            if active_session is not None:
+                active_session.resume_session(chosen_id)
+            else:
+                self.window.run_command("gemini_cli", {"session_id": chosen_id})
+
+            sublime.status_message(f"Resuming Antigravity session {chosen_id[:8]}…")
+
+        self.window.show_quick_panel(items, on_select, placeholder="Resume previous Antigravity session")
+
