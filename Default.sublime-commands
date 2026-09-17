@@ -4,6 +4,10 @@
         "command": "gemini_cli"
     },
     {
+        "caption": "Gemini: Agent\tselect Antigravity, Gemini",
+        "command": "gemini_switch_agent"
+    },
+    {
         "caption": "Gemini: Quick Message\tsend message directly",
         "command": "gemini_prompt"
     },
@@ -16,11 +20,19 @@
         "command": "gemini_clear_session"
     },
     {
+        "caption": "Gemini: Resume Session\tresume previous conversation",
+        "command": "gemini_resume_session"
+    },
+    {
         "caption": "Gemini: Approval Mode\ttool permission mode",
         "command": "gemini_set_approve_mode"
     },
     {
         "caption": "Gemini: Set Model\tswitch model",
         "command": "gemini_set_model"
+    },
+    {
+        "caption": "Gemini: Set Reasoning Effort\tthinking level",
+        "command": "gemini_set_effort"
     }
 ]

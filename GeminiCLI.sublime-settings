@@ -15,14 +15,33 @@
     // }
     "env": {},
 
+    // Whether to automatically share all open workspace folders with the Gemini CLI.
+    // If true, the plugin injects all open folders into the `GEMINI_CLI_IDE_WORKSPACE_PATH`
+    // environment variable, allowing the AI to access the entire multi-root project space.
+    "share_workspace_folders": true,
+
     // Path or command name for the Gemini CLI executable.
     // If left empty, the plugin will automatically attempt to discover the CLI in common
     // installation locations (e.g., ~/.local/bin, /opt/homebrew/bin, APPDATA/npm, etc.)
     // or through the system PATH.
     "gemini_command": "",
 
-    // Whether to automatically share all open workspace folders with the Gemini CLI.
-    // If true, the plugin injects all open folders into the `GEMINI_CLI_IDE_WORKSPACE_PATH`
-    // environment variable, allowing the AI to access the entire multi-root project space.
-    "share_workspace_folders": true
+    // Path or command name for the Antigravity CLI executable (default "agy").
+    // If left empty, the plugin will automatically attempt to discover the CLI in common
+    // installation locations or through the system PATH.
+    "antigravity_command": "",
+
+    // Controls whether Antigravity CLI skips permission checks in "allow-edit" mode.
+    // Note: Antigravity CLI runs in headless stream-json mode and does not support interactive
+    // permission prompts. Any tool call requiring approval (e.g. terminal commands) will be
+    // automatically soft-denied unless pre-approved in ~/.gemini/antigravity-cli/settings.json.
+    // - When true (default): Passes "--dangerously-skip-permissions", enabling autonomous file
+    //   edits and command execution.
+    // - When false: Passes "--mode accept-edits" without skipping permissions. Workspace file
+    //   edits are permitted, but unapproved terminal commands are denied.
+    "antigravity_skip_permissions": true,
+
+    // Maximum number of recent conversation turns loaded by Resume Session.
+    // Set to 50 by default, or 0 to load the full conversation history.
+    "session_history_limit": 50
 }

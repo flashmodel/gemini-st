@@ -87,13 +87,22 @@ Gemini CLI performs various actions (tools) like reading files, searching the we
   - Allow Edit: Automatically approves "safe" read/edit operations; still prompts for "risky" commands.
   - Accept All: Automatically approves all tool calls, including shell command execution.
 
-**Select Model**
+**Select Model & Reasoning Effort**
 
-Use the command palette (`Gemini: Select Model`) to choose the desired model for your current Gemini session.
+- Use the command palette (**`Gemini: Set Model`**) to choose the desired model. For supported models (such as Antigravity models), you will automatically be prompted to select the reasoning effort level (`low`, `medium`, or `high`).
+- Use **`Gemini: Set Reasoning Effort`** to adjust the thinking/reasoning effort directly without changing the current model.
+
+**Switch Agent Provider**
+
+Use the command palette (`Gemini: Switch Agent`) to toggle between **Gemini CLI** and **Antigravity** (`agy` / `antigravity`). When switched, your active chat session seamlessly resets and connects to the selected agent provider.
 
 **Clear Session**
 
 To reset the current conversation history and start a completely fresh context, open the command palette and run **`Gemini: Clear Session`**. This will reload the agent and clear its memory for the current workspace.
+
+**Resume Session**
+
+To resume a previous conversation for the current workspace (or past workspaces), open the command palette and run **`Gemini: Resume Session`** (supported for Antigravity). You will be presented with an interactive quick panel of past sessions showing the initial prompt preview and last modified timestamp. Selecting a session restores the conversation context, recent turns, and plan/walkthrough artifacts.
 
 ## Key Bindings
 

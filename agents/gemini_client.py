@@ -6,7 +6,10 @@ import shutil
 import sys
 import logging
 import os
-import sublime
+try:
+    import sublime
+except ImportError:
+    sublime = None
 
 LOG = logging.getLogger(__package__)
 
@@ -89,8 +92,9 @@ class GeminiClient:
         try:
             import re
             v_args = {}
-            if sublime.platform() == 'windows':
-                v_args['creationflags'] = subprocess.CREATE_NO_WINDOW
+            is_win = (sublime.platform() == 'windows') if sublime and hasattr(sublime, 'platform') else (sys.platform == 'win32')
+            if is_win:
+                v_args['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
 
             version_out = subprocess.check_output(
                 [gemini_command, "--version"],
@@ -155,9 +159,9 @@ class GeminiClient:
                 'bufsize': 1
             }
 
-            # On Windows, prevent console window from appearing
-            if sublime.platform() == 'windows':
-                popen_args['creationflags'] = subprocess.CREATE_NO_WINDOW
+            is_win = (sublime.platform() == 'windows') if sublime and hasattr(sublime, 'platform') else (sys.platform == 'win32')
+            if is_win:
+                popen_args['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
 
             acp_flag = self._get_acp_flag(gemini_command, env)
 
@@ -417,7 +421,7 @@ class GeminiClient:
         return self._send_request("session/cancel",
             {"sessionId": self.session_id})
 
-    def agent_session_set_model(self, model_id):
+    def agent_session_set_model(self, model_id, effort=None):
         """Set the model for the current session."""
         return self._send_request("session/set_model", {
             "sessionId": self.session_id,
