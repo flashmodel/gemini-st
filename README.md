@@ -1,21 +1,27 @@
-# Gemini CLI for Sublime Text
+# Google Antigravity & Gemini for Sublime Text
 
-This package provides an agentic interface to the google Gemini CLI directly within Sublime Text.
+[![Package Control](https://img.shields.io/badge/Package_Control-GeminiCLI-389826?logo=sublimetext&logoColor=white)](https://packagecontrol.io/packages/GeminiCLI)
+
+This package provides an agentic coding interface powered by gemini inside Sublime Text. It features **Google Antigravity** as the default agent alongside the legacy **Gemini CLI**.
 
 ![Gemini Chat](screenshot.png)
 
 > Looking to use **Claude Code or OpenAI Codex** in Sublime Text, install the [TermMate package](https://packagecontrol.io/packages/TermMate), a native multi-agent coding assistant with seamless agent switching, file context, plan mode, and session resume. [Explore TermMate’s features for Sublime Text](https://termmate.app/sublime/).
 
 ## Prerequisites
-This plugin relies on the Google Gemini CLI. Install the required CLI tool:
+
+This plugin supports two google agent backends. You can install either one depending on your workflow:
 
 ```bash
+# Antigravity CLI (macOS / Linux)
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+
+# Antigravity CLI (Windows PowerShell)
+irm https://antigravity.google/cli/install.ps1 | iex
+
+# install geminicli via npm
 npm install -g @google/gemini-cli
 ```
-
-**Requirement:** gemini-cli version `0.34.0` or higher. For detailed installation, refer to the [geminicli official docs](https://geminicli.com/docs/get-started/installation/).
-
-> **Note:** The plugin automatically detects CLI installation across multiple environments, including **Homebrew**, **npm-global**, **Yarn**, and common local binary directories. You typically don't need to manually configure environment variables or search paths.
 
 ## Install GeminiCLI plugin from Package Control
 
@@ -25,37 +31,46 @@ The easiest way to install this plugin is through [Package Control](https://pack
 2.  Type `Package Control: Install Package` and press `Enter`.
 3.  Search for `GeminiCLI` and press `Enter`.
 
-The plugin automatically detects gemini-cli. If the command line tool is installed elsewhere, or you wish to use a specific `gemini`version, you can manually set the path in ` Preferences -> Package Settings -> GeminiCLI -> Settings`
+The plugin automatically detects antigravity and geminicli. If your CLI binaries are in non-standard locations, configure them under `Preferences -> Package Settings -> GeminiCLI -> Settings`:
 
-For example set the `"gemini_command"` in settings with:
+```json
+{
+    "antigravity_command": "/usr/local/bin/agy",
+    "gemini_command": "/usr/local/bin/gemini"
+}
+```
 
-- Windows: `"C:/Users/myname/AppData/Roaming/npm/gemini.cmd"`
-- macOS/Linux: `"/usr/local/bin/gemini"`
+## Authentication
 
-## Gemini Authentication
+You can authenticate using either your **Google Account (OAuth)** or a **Gemini API Key**:
 
-You need to authenticate before using the plugin. Supported methods:
-
-- **Google Account**: Since 2026-06-18, Gemini CLI no longer supports individual accounts; enterprise Gemini accounts remain supported. See the [Gemini CLI announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
-- **API Key**: Obtain an API key from [Google AI Studio](https://aistudio.google.com/) and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
-- **Google Vertex AI**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` section of your settings:
-
-    ```
-    "env": {
-        "GOOGLE_CLOUD_PROJECT": "your-project-id",
-        "GOOGLE_CLOUD_LOCATION": "us-central1"
-    }
-    ```
-
-    Ensure you've authenticated with your Google Cloud account via `gcloud auth application-default login`.
+- **Google Account OAuth**: Run `agy` in your terminal:
+  ```bash
+  agy
+  ```
+  the CLI automatically launches your default web browser to complete Google account sign-in.
+- **Gemini API Key**: If you prefer using an API key, set custom env in `Preferences -> Package Settings -> GeminiCLI -> Settings`:
+  ```json
+  "env": {
+      "GEMINI_API_KEY": "your-api-key-here"
+  }
+  ```
+- **Google Vertex AI (geminicli)**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` setting:
+  ```json
+  "env": {
+      "GOOGLE_CLOUD_PROJECT": "your-project-id",
+      "GOOGLE_CLOUD_LOCATION": "us-central1"
+  }
+  ```
+  Ensure you have authenticated via `gcloud auth application-default login`.
 
 ## Start Gemini Chat
 
-1.  Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
-2.  Type `Gemini: Start Chat` and press `Enter`.
-3.  A new view will open for the Gemini chat.
-4.  Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
-5.  Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
+1. Open the command palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux).
+2. Type `Gemini: Start Chat` and press `Enter`. Alternatively, you can use a shortcut to start the chat (see [Key Bindings](#key-bindings) for configuration).
+3. Type your message and press `Ctrl+Enter` (or `Super+Enter` on macOS) to send.
+
+To stop a running conversation, press `Shift+Escape` (or `Cmd+Escape` on macOS), or run `Gemini: Stop Conversation` from the command palette.
 
 For detailed usage and features, see the [Gemini CLI for Sublime Text Guide](https://gemini.termmate.app).
 
@@ -106,7 +121,7 @@ To resume a previous conversation for the current workspace (or past workspaces)
 
 ## Key Bindings
 
-In the Gemini chat view, you can use the **Up** and **Down** arrow keys to scroll through your input history.
+In the Gemini chat view, you can use the **Up** and **Down** arrow keys to scroll through your input history, and press `Shift+Escape` (or `Super+Escape` on macOS) to stop or interrupt an active conversation.
 
 This package does not include a global shortcut by default. You can add key bindings manually:
 
@@ -144,4 +159,4 @@ All communication happens via the `gemini` CLI tool installed on your system, wh
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
