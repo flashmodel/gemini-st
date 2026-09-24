@@ -5,7 +5,7 @@
         "args": {"files": [], "dirs": []}
     },
     {
-        "caption": "Chat with Gemini agent",
+        "caption": "Add to Gemini Chat",
         "command": "gemini_add_file",
         "args": {"files": [], "dirs": []}
     }
