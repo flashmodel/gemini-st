@@ -61,10 +61,20 @@ class MockTextCommand:
 class MockEventListener:
     pass
 
+class MockListInputHandler:
+    def __init__(self, *args, **kwargs):
+        pass
+
+class MockTextInputHandler:
+    def __init__(self, *args, **kwargs):
+        pass
+
 mock_sublime_plugin = MagicMock()
 mock_sublime_plugin.WindowCommand = MockWindowCommand
 mock_sublime_plugin.TextCommand = MockTextCommand
 mock_sublime_plugin.EventListener = MockEventListener
+mock_sublime_plugin.ListInputHandler = MockListInputHandler
+mock_sublime_plugin.TextInputHandler = MockTextInputHandler
 
 sys.modules["sublime_plugin"] = mock_sublime_plugin
 
