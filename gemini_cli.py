@@ -106,6 +106,8 @@ def get_current_effort(window=None, view=None, agent=None):
     """Retrieve the active reasoning effort level ('low', 'medium', 'high'), or None."""
     if not agent:
         agent = get_current_agent(window, view)
+    if agent == AGENT_GEMINI:
+        return None
     agent_effort_key = f"gemini_effort_{agent}"
     if view and view.settings().has(agent_effort_key):
         return view.settings().get(agent_effort_key)
@@ -2212,16 +2214,15 @@ class GeminiSetModelListHandler(sublime_plugin.ListInputHandler):
                         break
             else:
                 supports_effort = True
-        elif self.available_models:
-            for m in self.available_models:
-                if (m.get("modelId") == model or m.get("value") == model) and (m.get("supportsEffort") or m.get("supportedReasoningEfforts")):
-                    supports_effort = True
-                    supported_efforts = m.get("supportedReasoningEfforts")
-                    break
 
         if supports_effort:
             current_effort = get_current_effort(window, agent=agent)
-            return GeminiSetEffortListHandler(current_effort=current_effort, selected_model=model, supported_efforts=supported_efforts, window=window)
+            return GeminiSetEffortListHandler(
+                current_effort=current_effort,
+                selected_model=model,
+                supported_efforts=supported_efforts,
+                window=window
+            )
         return None
 
     def list_items(self):
@@ -2239,15 +2240,16 @@ class GeminiSetModelListHandler(sublime_plugin.ListInputHandler):
             current_effort = get_current_effort(window, agent=agent)
 
             supports_effort = False
-            for m in self.available_models:
-                m_id = m.get("modelId") or m.get("value")
-                if m_id == self.current_model and (
-                    m.get("supportsEffort") or m.get("supportedReasoningEfforts")
-                ):
+            if agent == AGENT_ANTIGRAVITY:
+                for m in self.available_models:
+                    m_id = m.get("modelId") or m.get("value")
+                    if m_id == self.current_model and (
+                        m.get("supportsEffort") or m.get("supportedReasoningEfforts")
+                    ):
+                        supports_effort = True
+                        break
+                if not self.available_models:
                     supports_effort = True
-                    break
-            if not self.available_models and agent == AGENT_ANTIGRAVITY:
-                supports_effort = True
 
             for i, item in enumerate(items):
                 is_match = (
@@ -2322,21 +2324,22 @@ class GeminiSetModelCommand(sublime_plugin.WindowCommand):
             status_msg = f"{agent_title} model set to: {model}"
 
         target_effort = None
-        if effort is not None:
-            effort = effort.strip().lower()
-            if effort in ("", "default"):
-                self.window.settings().erase(agent_effort_key)
-                self.window.settings().erase(GEMINI_EFFORT)
-                target_effort = None
-                if target_model:
-                    status_msg += " (effort: default)"
+        if agent == AGENT_ANTIGRAVITY:
+            if effort is not None:
+                effort = effort.strip().lower()
+                if effort in ("", "default"):
+                    self.window.settings().erase(agent_effort_key)
+                    self.window.settings().erase(GEMINI_EFFORT)
+                    target_effort = None
+                    if target_model:
+                        status_msg += " (effort: default)"
+                else:
+                    self.window.settings().set(agent_effort_key, effort)
+                    self.window.settings().set(GEMINI_EFFORT, effort)
+                    target_effort = effort
+                    status_msg += f" (effort: {effort})"
             else:
-                self.window.settings().set(agent_effort_key, effort)
-                self.window.settings().set(GEMINI_EFFORT, effort)
-                target_effort = effort
-                status_msg += f" (effort: {effort})"
-        else:
-            target_effort = get_current_effort(self.window, agent=agent)
+                target_effort = get_current_effort(self.window, agent=agent)
 
         sublime.status_message(status_msg)
         LOG.info("%s", status_msg)
@@ -2399,10 +2402,17 @@ class GeminiSetModelCommand(sublime_plugin.WindowCommand):
 class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
     """Set the reasoning effort for the current agent session."""
     def run(self, effort=None):
+        window_id = self.window.id()
+        session = gemini_clients.get(window_id)
+        chat_view = session.chat_view if session else None
+        agent = get_current_agent(self.window, chat_view)
+        if agent == AGENT_GEMINI:
+            sublime.status_message("Reasoning effort is not supported for Gemini CLI (Antigravity only)")
+            return
+
         if effort is not None:
             effort = effort.strip().lower()
 
-        agent = get_current_agent(self.window)
         agent_effort_key = f"gemini_effort_{agent}"
 
         if not effort or effort == "default":
@@ -2420,7 +2430,6 @@ class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
         sublime.status_message(f"{agent_title} reasoning effort set to: {effort_label}")
         LOG.info("%s reasoning effort set to: %s", agent_title, effort_label)
 
-        window_id = self.window.id()
         if window_id in gemini_clients:
             session = gemini_clients[window_id]
             client = getattr(session, "client", None)
@@ -2450,22 +2459,15 @@ class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
 
     def input(self, args):
         if "effort" not in args:
-            agent = get_current_agent(self.window)
+            window_id = self.window.id()
+            session = gemini_clients.get(window_id)
+            chat_view = session.chat_view if session else None
+            agent = get_current_agent(self.window, chat_view)
+            if agent == AGENT_GEMINI:
+                return None
             current_effort = get_current_effort(self.window, agent=agent)
             return GeminiSetEffortListHandler(current_effort=current_effort, window=self.window)
         return None
-
-    def is_enabled(self):
-        agent = get_current_agent(self.window)
-        if agent == AGENT_ANTIGRAVITY:
-            return True
-        window_id = self.window.id()
-        if window_id in gemini_clients:
-            session = gemini_clients[window_id]
-            client = getattr(session, "client", None)
-            if client and (hasattr(client, "agent_session_set_effort") or hasattr(client, "current_effort")):
-                return True
-        return False
 
 
 class GeminiClearSessionCommand(sublime_plugin.WindowCommand):
@@ -2562,6 +2564,12 @@ class GeminiResumeSessionCommand(sublime_plugin.WindowCommand):
         import datetime
         window_id = self.window.id()
         session = gemini_clients.get(window_id)
+        chat_view = session.chat_view if session else None
+        agent = get_current_agent(self.window, chat_view)
+        if agent == AGENT_GEMINI:
+            sublime.status_message("Session resume is not supported for Gemini CLI (Antigravity only)")
+            return
+
         cwd = self._get_cwd(session)
 
         # 1. Fetch sessions for cwd
