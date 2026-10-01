@@ -845,10 +845,12 @@ class AntigravityClient:
         elif event_type == "result":
             result = data.get("result") or data
             status = result.get("status")
-            err_msg = result.get("error")
+            err_msg = result.get("error") or ""
 
             if status == "ERROR" and not self._interrupted:
-                if err_msg and "context canceled" not in err_msg.lower():
+                # If a response was already received and the error is just trailing EOF, suppress it
+                is_trailing_eof = bool(result.get("response") and "eof" in err_msg.lower())
+                if not is_trailing_eof and err_msg and "context canceled" not in err_msg.lower():
                     self.callbacks['on_error'](err_msg)
 
             stop_reason = "cancelled" if self._interrupted else "end_turn"
