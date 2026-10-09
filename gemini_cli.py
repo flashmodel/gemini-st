@@ -467,6 +467,15 @@ class ChatSession:
             ignore_history=bool(session_id)
         )
 
+    @property
+    def is_busy(self):
+        """Check whether the agent is currently generating or awaiting response."""
+        return bool(
+            (self.loading_animation and self.loading_animation.is_loading)
+            or getattr(self, "pending_permissions", None)
+            or (self.client and getattr(self.client, "current_msg_id", 0))
+        )
+
     def update_chat_title(self):
         """Update the chat view tab title based on the active agent."""
         update_chat_title(self.chat_view, self.agent_name)
@@ -2315,13 +2324,11 @@ class GeminiSetModelCommand(sublime_plugin.WindowCommand):
             if agent == AGENT_GEMINI:
                 self.window.settings().erase(GEMINI_MODEL)
             target_model = None
-            status_msg = f"{agent_title} model set to: default (agent decided)"
         else:
             model = model.strip()
             self.window.settings().set(agent_model_key, model)
             self.window.settings().set(GEMINI_MODEL, model)
             target_model = model
-            status_msg = f"{agent_title} model set to: {model}"
 
         target_effort = None
         if agent == AGENT_ANTIGRAVITY:
@@ -2331,22 +2338,30 @@ class GeminiSetModelCommand(sublime_plugin.WindowCommand):
                     self.window.settings().erase(agent_effort_key)
                     self.window.settings().erase(GEMINI_EFFORT)
                     target_effort = None
-                    if target_model:
-                        status_msg += " (effort: default)"
                 else:
                     self.window.settings().set(agent_effort_key, effort)
                     self.window.settings().set(GEMINI_EFFORT, effort)
                     target_effort = effort
-                    status_msg += f" (effort: {effort})"
             else:
                 target_effort = get_current_effort(self.window, agent=agent)
+
+        model_display = (
+            f"{target_model}:{target_effort}"
+            if target_effort
+            else (target_model or "default")
+        )
+        status_msg = f"{agent_title}: {model_display}"
+
+        window_id = self.window.id()
+        session = gemini_clients.get(window_id)
+        is_busy = bool(session and session.is_busy)
+        if is_busy:
+            status_msg += " (next turn)"
 
         sublime.status_message(status_msg)
         LOG.info("%s", status_msg)
 
-        window_id = self.window.id()
-        if window_id in gemini_clients:
-            session = gemini_clients[window_id]
+        if session:
             client = getattr(session, "client", None)
             if client:
                 if getattr(client, "available_models", None) and target_model:
@@ -2371,7 +2386,8 @@ class GeminiSetModelCommand(sublime_plugin.WindowCommand):
 
             chat_view = getattr(session, "chat_view", None)
             if (
-                chat_view
+                not is_busy
+                and chat_view
                 and chat_view.is_valid()
                 and (
                     not getattr(session, "is_startup", False)
@@ -2427,11 +2443,17 @@ class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
             effort_label = effort
 
         agent_title = "Antigravity" if agent == AGENT_ANTIGRAVITY else "Gemini"
-        sublime.status_message(f"{agent_title} reasoning effort set to: {effort_label}")
-        LOG.info("%s reasoning effort set to: %s", agent_title, effort_label)
+        effort_msg = f"{agent_title} effort: {effort_label}"
 
-        if window_id in gemini_clients:
-            session = gemini_clients[window_id]
+        session = gemini_clients.get(window_id)
+        is_busy = bool(session and session.is_busy)
+        if is_busy:
+            effort_msg += " (next turn)"
+
+        sublime.status_message(effort_msg)
+        LOG.info("%s", effort_msg)
+
+        if session:
             client = getattr(session, "client", None)
             if client:
                 if hasattr(client, "agent_session_set_effort"):
@@ -2447,7 +2469,8 @@ class GeminiSetEffortCommand(sublime_plugin.WindowCommand):
 
             chat_view = getattr(session, "chat_view", None)
             if (
-                chat_view
+                not is_busy
+                and chat_view
                 and chat_view.is_valid()
                 and (
                     not getattr(session, "is_startup", False)
