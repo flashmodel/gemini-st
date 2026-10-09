@@ -111,7 +111,8 @@ class TestAntigravityClientBuildCmd(unittest.TestCase):
         client.process = mock_proc
         client.agent_session_set_effort("high")
         self.assertEqual(client.current_effort, "high")
-        mock_proc.terminate.assert_called_once()
+        self.assertTrue(client._restarting)
+        mock_proc.terminate.assert_not_called()
 
     def test_agent_session_reset_effort_to_none(self):
         client = AntigravityClient(self.callbacks, model="gemini-3.8-flash", effort="high")
@@ -120,7 +121,8 @@ class TestAntigravityClientBuildCmd(unittest.TestCase):
         client.process = mock_proc
         client.agent_session_set_effort(None)
         self.assertIsNone(client.current_effort)
-        mock_proc.terminate.assert_called_once()
+        self.assertTrue(client._restarting)
+        mock_proc.terminate.assert_not_called()
         _, cmd = client._build_cmd(agent_command="/bin/agy")
         # Defaults to medium to satisfy agy's requirement
         self.assertIn("--effort", cmd)
@@ -134,7 +136,8 @@ class TestAntigravityClientBuildCmd(unittest.TestCase):
         client.agent_session_set_model("gemini-3.8-flash", effort="low")
         self.assertEqual(client.current_model_id, "gemini-3.8-flash")
         self.assertEqual(client.current_effort, "low")
-        mock_proc.terminate.assert_called_once()
+        self.assertTrue(client._restarting)
+        mock_proc.terminate.assert_not_called()
 
     def test_no_model_omits_flag(self):
         client = AntigravityClient(self.callbacks)
