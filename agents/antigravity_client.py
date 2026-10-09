@@ -921,12 +921,6 @@ class AntigravityClient:
 
     def _restart_process_for_settings(self):
         self._restarting = True
-        if not self.current_msg_id and self.process and self.process.poll() is None:
-            self.process._restarting = True
-            try:
-                self.process.terminate()
-            except Exception:
-                pass
 
     def agent_session_set_model(self, model_id=None, effort=None):
         if not model_id or model_id == "default":
