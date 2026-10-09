@@ -478,6 +478,7 @@ class AntigravityClient:
         self.init_event = threading.Event()
         self.session_event = threading.Event()
         self._interrupted = False
+        self._restarting = False
         self._stderr_lines = []
 
         self.current_model_id = model if model and model != "default" else None
@@ -669,12 +670,23 @@ class AntigravityClient:
                         pass
                 break
 
+            # If restart was deferred while busy, terminate old process now
+            if self._restarting and self.process and self.process.poll() is None:
+                self.process._restarting = True
+                try:
+                    self.process.terminate()
+                except Exception:
+                    pass
+
             msg_id, user_input = item
             self.current_msg_id = msg_id
 
-            # If process has exited (e.g. after interrupt), respawn with existing session_id
-            if self._interrupted or not self.process or self.process.poll() is not None:
+            # If process has exited (e.g. after interrupt or settings restart),
+            # respawn with existing session_id
+            process_dead = not self.process or self.process.poll() is not None
+            if self._interrupted or self._restarting or process_dead:
                 self._interrupted = False
+                self._restarting = False
                 try:
                     ok = self._spawn_process(
                         self._start_args.get("api_key"),
@@ -727,7 +739,16 @@ class AntigravityClient:
                 LOG.error("Antigravity read stdout error: %s", e)
         finally:
             LOG.info("Antigravity session ended")
-            if proc and proc.poll() is not None and proc.returncode != 0 and not self._interrupted:
+            is_restarting = getattr(proc, "_restarting", False) or (
+                self._restarting and not self.current_msg_id
+            )
+            if (
+                proc
+                and proc.poll() is not None
+                and proc.returncode != 0
+                and not self._interrupted
+                and not is_restarting
+            ):
                 err_msg = self._extract_exit_error()
                 if "context canceled" not in err_msg.lower():
                     self.callbacks['on_error'](err_msg)
@@ -737,7 +758,8 @@ class AntigravityClient:
             elif self._interrupted and self.current_msg_id:
                 self.callbacks['on_stop'](self.current_msg_id, "cancelled")
                 self.current_msg_id = 0
-            self.callbacks['on_exit']()
+            if not is_restarting:
+                self.callbacks['on_exit']()
 
     def _read_stderr_loop(self):
         proc = self.process
@@ -880,6 +902,7 @@ class AntigravityClient:
 
     def agent_session_cancel(self):
         self._interrupted = True
+        self._restarting = False
         proc = self.process
         if proc and proc.poll() is None:
             try:
@@ -896,6 +919,15 @@ class AntigravityClient:
             except Exception:
                 break
 
+    def _restart_process_for_settings(self):
+        self._restarting = True
+        if not self.current_msg_id and self.process and self.process.poll() is None:
+            self.process._restarting = True
+            try:
+                self.process.terminate()
+            except Exception:
+                pass
+
     def agent_session_set_model(self, model_id=None, effort=None):
         if not model_id or model_id == "default":
             self.current_model_id = None
@@ -903,35 +935,26 @@ class AntigravityClient:
             self.current_model_id = model_id
         if effort is not None:
             self.current_effort = effort if effort in ("low", "medium", "high") else None
-        LOG.info("Antigravity model set to: %s (effort: %s)", self.current_model_id, self.current_effort)
-        if self.process and self.process.poll() is None:
-            try:
-                self.process.terminate()
-            except Exception:
-                pass
+        LOG.info("Antigravity model set to: %s (effort: %s)",
+                 self.current_model_id, self.current_effort)
+        self._restart_process_for_settings()
 
     def agent_session_set_effort(self, effort=None):
         self.current_effort = effort if effort in ("low", "medium", "high") else None
         LOG.info("Antigravity effort set to: %s", self.current_effort)
-        if self.process and self.process.poll() is None:
-            try:
-                self.process.terminate()
-            except Exception:
-                pass
+        self._restart_process_for_settings()
 
     def agent_session_set_approve_mode(self, mode, skip_permissions=None):
         self.approve_mode = mode or "allow-edit"
         if skip_permissions is not None:
             self.skip_permissions = skip_permissions
-        LOG.info("Antigravity approve_mode set to: %s (skip_permissions: %s)", self.approve_mode, self.skip_permissions)
-        if self.process and self.process.poll() is None:
-            try:
-                self.process.terminate()
-            except Exception:
-                pass
+        LOG.info("Antigravity approve_mode set to: %s (skip_permissions: %s)",
+                 self.approve_mode, self.skip_permissions)
+        self._restart_process_for_settings()
 
     def stop(self):
         self._interrupted = True
+        self._restarting = False
         self.input_queue.put(None)
         if self.process and self.process.poll() is None:
             try:
