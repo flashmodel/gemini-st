@@ -3,17 +3,26 @@ Gemini CLI for Sublime Text
 
 Thank you for installing the Gemini CLI plugin!
 
-This plugin provides an interface to the Gemini CLI directly within Sublime Text.
+This plugin provides an agentic AI coding interface inside Sublime Text, featuring
+Google Antigravity as the default agent alongside the legacy Gemini CLI.
 
 Getting Started:
-- Ensure the `gemini` command-line tool is installed and in your PATH.
-- Authenticate using one of the following methods:
-  - Google Account: Since 2026-06-18, individual accounts are no longer supported; enterprise Gemini accounts remain supported.
-  - API Key: Obtain an API key from Google AI Studio and set it in `Preferences -> Package Settings -> GeminiCLI -> Settings`.
-  - Google Vertex AI: Configure your Google Cloud project and location in the `env` section of your settings.
-- Open the command palette and type "Gemini: Start Chat".
+1. Prerequisites (install at least one):
+   - Antigravity (Default): curl -fsSL https://antigravity.google/cli/install.sh | bash
+   - Gemini CLI: npm install -g @google/gemini-cli
+
+2. Authentication:
+   - Antigravity: Run `agy` in your terminal to complete Google Account login.
+   - API Key: Set "GEMINI_API_KEY" under:
+     Preferences -> Package Settings -> GeminiCLI -> Settings
+   - Google Vertex AI (Gemini CLI): Configure "GOOGLE_CLOUD_PROJECT" in settings env.
+
+3. Usage:
+   - Open the Command Palette and run "Gemini: Start Chat".
+   - Switch backends anytime using "Gemini: Switch Agent".
 
 Data Privacy & Context:
-By default, this plugin does not send your entire workspace to Gemini. Only text you type in the chat and files you explicitly @-mention are sent to the AI service.
+By default, this plugin does not send your entire workspace to AI services. Only text
+you type in chat and files you explicitly @-mention are shared.
 
 For more information, see https://github.com/flashmodel/gemini-st#gemini-cli-for-sublime-text

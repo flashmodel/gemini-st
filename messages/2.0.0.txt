@@ -1,0 +1,10 @@
+Gemini CLI for Sublime Text 2.0.0
+=================================
+
+- Antigravity Support: Added Google Antigravity (`agy`) as the default agent
+  backend alongside Gemini CLI, with headless streaming protocol, dynamic
+  agent switching, and reasoning effort controls.
+- Resume Session: Added "Gemini: Resume Session" to browse and restore past
+  Antigravity conversations directly from brain storage with recent turns.
+- Artifacts: Automatically track and render implementation plan and
+  walkthrough artifacts with interactive phantom links and editor buffers.
