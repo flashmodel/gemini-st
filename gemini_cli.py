@@ -10,6 +10,8 @@ import sublime_plugin
 from .agents import (
     GeminiClient,
     AntigravityClient,
+    find_gemini_cli,
+    find_antigravity_cli,
     list_antigravity_sessions,
     get_antigravity_session_tail,
 )
@@ -89,7 +91,17 @@ def get_current_agent(window=None, view=None):
     if window and window.settings().has(GEMINI_AGENT):
         return window.settings().get(GEMINI_AGENT)
     settings = sublime.load_settings("GeminiCLI.sublime-settings")
-    return settings.get("agent", AGENT_ANTIGRAVITY)
+    configured_agent = settings.get("agent")
+    if configured_agent in (AGENT_GEMINI, AGENT_ANTIGRAVITY):
+        return configured_agent
+
+    # Auto-detect available agent when not explicitly configured
+    has_agy = bool(find_antigravity_cli(settings.get("antigravity_command")))
+    has_gemini = bool(find_gemini_cli(settings.get("gemini_command")))
+    if not has_agy and has_gemini:
+        return AGENT_GEMINI
+
+    return AGENT_ANTIGRAVITY
 
 
 def get_antigravity_skip_permissions(window=None, view=None):
@@ -2523,10 +2535,21 @@ class GeminiSwitchAgentListHandler(sublime_plugin.ListInputHandler):
         return "agent"
 
     def list_items(self):
-        items = [
-            ("Antigravity (antigravity)", AGENT_ANTIGRAVITY),
-            ("Gemini CLI (gemini)", AGENT_GEMINI),
-        ]
+        settings = sublime.load_settings("GeminiCLI.sublime-settings")
+        has_agy = bool(find_antigravity_cli(settings.get("antigravity_command")))
+        has_gemini = bool(find_gemini_cli(settings.get("gemini_command")))
+
+        agy_status = "Installed" if has_agy else "Not Installed"
+        gemini_status = "Installed" if has_gemini else "Not Installed"
+
+        agy_item = (f"Antigravity (antigravity) [{agy_status}]", AGENT_ANTIGRAVITY)
+        gemini_item = (f"Gemini CLI (gemini) [{gemini_status}]", AGENT_GEMINI)
+
+        if not has_agy and has_gemini:
+            items = [gemini_item, agy_item]
+        else:
+            items = [agy_item, gemini_item]
+
         if self.current_agent:
             for i, item in enumerate(items):
                 if item[1] == self.current_agent:
@@ -2538,6 +2561,9 @@ class GeminiSwitchAgentListHandler(sublime_plugin.ListInputHandler):
         if self.current_agent:
             return f" ( current: {self.current_agent} ); select agent provider"
         return "select agent provider"
+
+    def description(self, value, text):
+        return f"Agent: {value}"
 
 
 class GeminiSwitchAgentCommand(sublime_plugin.WindowCommand):

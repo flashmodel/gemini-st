@@ -3,10 +3,20 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+import types
+
+PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PARENT_DIR not in sys.path:
+    sys.path.insert(0, PARENT_DIR)
 # Ensure GeminiCLI package directory is in sys.path
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+
+if "GeminiCLI" not in sys.modules:
+    gemini_cli_pkg = types.ModuleType("GeminiCLI")
+    gemini_cli_pkg.__path__ = [BASE_DIR]
+    sys.modules["GeminiCLI"] = gemini_cli_pkg
 
 # Mock sublime module if running in standalone Python
 if "sublime" not in sys.modules:
@@ -16,18 +26,31 @@ if "sublime" not in sys.modules:
 
 if "sublime_plugin" not in sys.modules:
     mock_sublime_plugin = MagicMock()
+    class _DummyInputHandler:
+        pass
+    mock_sublime_plugin.ListInputHandler = _DummyInputHandler
+    mock_sublime_plugin.TextInputHandler = _DummyInputHandler
     sys.modules["sublime_plugin"] = mock_sublime_plugin
 
 from agents.antigravity_client import AntigravityClient, find_antigravity_cli
+from agents.gemini_client import find_gemini_cli
+from GeminiCLI.gemini_cli import (
+    get_current_agent,
+    GeminiSwitchAgentListHandler,
+    AGENT_GEMINI,
+    AGENT_ANTIGRAVITY,
+)
 
 
 class TestFindAntigravityCLI(unittest.TestCase):
     def test_finds_on_path_agy(self):
-        with patch("shutil.which", side_effect=lambda cmd: "/usr/local/bin/agy" if cmd == "agy" else None):
+        with patch("shutil.which",
+                   side_effect=lambda cmd: "/usr/local/bin/agy" if cmd == "agy" else None):
             self.assertEqual(find_antigravity_cli(), "/usr/local/bin/agy")
 
     def test_finds_on_path_antigravity(self):
-        with patch("shutil.which", side_effect=lambda cmd: "/opt/bin/antigravity" if cmd == "antigravity" else None):
+        with patch("shutil.which",
+                   side_effect=lambda c: "/opt/bin/antigravity" if c == "antigravity" else None):
             self.assertEqual(find_antigravity_cli(), "/opt/bin/antigravity")
 
     def test_finds_candidate_path_when_not_on_path(self):
@@ -41,6 +64,73 @@ class TestFindAntigravityCLI(unittest.TestCase):
         with patch("shutil.which", return_value=None), \
              patch("os.path.isfile", return_value=False):
             self.assertIsNone(find_antigravity_cli())
+
+
+class TestFindGeminiCLI(unittest.TestCase):
+    def test_finds_on_path_gemini(self):
+        with patch("shutil.which",
+                   side_effect=lambda cmd: "/usr/local/bin/gemini" if cmd == "gemini" else None):
+            self.assertEqual(find_gemini_cli(), "/usr/local/bin/gemini")
+
+    def test_finds_candidate_path_when_not_on_path(self):
+        expected = os.path.expanduser("~/.local/bin/gemini")
+        with patch("shutil.which", return_value=None), \
+             patch("os.path.isfile", side_effect=lambda p: p == expected), \
+             patch("os.access", return_value=True):
+            self.assertEqual(find_gemini_cli(), expected)
+
+    def test_returns_none_when_not_found(self):
+        with patch("shutil.which", return_value=None), \
+             patch("os.path.isfile", return_value=False):
+            self.assertIsNone(find_gemini_cli())
+
+
+class TestGetCurrentAgent(unittest.TestCase):
+    def test_returns_setting_override_if_present(self):
+        view = MagicMock()
+        view.settings().has.side_effect = lambda k: k == "gemini_agent"
+        view.settings().get.return_value = "gemini"
+        self.assertEqual(get_current_agent(view=view), "gemini")
+
+    def test_auto_detect_fallback(self):
+        mock_settings = MagicMock()
+        mock_settings.get.side_effect = lambda k, d="": ""
+        with patch("GeminiCLI.gemini_cli.sublime.load_settings", return_value=mock_settings):
+            with patch("GeminiCLI.gemini_cli.find_antigravity_cli", return_value=None), \
+                 patch("GeminiCLI.gemini_cli.find_gemini_cli", return_value="/bin/gemini"):
+                self.assertEqual(get_current_agent(), AGENT_GEMINI)
+
+            with patch("GeminiCLI.gemini_cli.find_antigravity_cli", return_value="/bin/agy"), \
+                 patch("GeminiCLI.gemini_cli.find_gemini_cli", return_value="/bin/gemini"):
+                self.assertEqual(get_current_agent(), AGENT_ANTIGRAVITY)
+
+
+class TestGeminiSwitchAgentListHandler(unittest.TestCase):
+    def test_order_and_status_when_only_gemini_installed(self):
+        with patch("GeminiCLI.gemini_cli.find_antigravity_cli", return_value=None), \
+             patch("GeminiCLI.gemini_cli.find_gemini_cli", return_value="/bin/gemini"):
+            handler = GeminiSwitchAgentListHandler(current_agent=None)
+            items = handler.list_items()
+            self.assertEqual(items[0], ("Gemini CLI (gemini) [Installed]", AGENT_GEMINI))
+            self.assertEqual(
+                items[1], ("Antigravity (antigravity) [Not Installed]", AGENT_ANTIGRAVITY)
+            )
+
+    def test_order_and_status_when_both_installed(self):
+        with patch("GeminiCLI.gemini_cli.find_antigravity_cli", return_value="/bin/agy"), \
+             patch("GeminiCLI.gemini_cli.find_gemini_cli", return_value="/bin/gemini"):
+            handler = GeminiSwitchAgentListHandler(current_agent=None)
+            items = handler.list_items()
+            self.assertEqual(items[0], ("Antigravity (antigravity) [Installed]", AGENT_ANTIGRAVITY))
+            self.assertEqual(items[1], ("Gemini CLI (gemini) [Installed]", AGENT_GEMINI))
+
+    def test_respects_current_agent_position(self):
+        with patch("GeminiCLI.gemini_cli.find_antigravity_cli", return_value="/bin/agy"), \
+             patch("GeminiCLI.gemini_cli.find_gemini_cli", return_value="/bin/gemini"):
+            handler = GeminiSwitchAgentListHandler(current_agent=AGENT_GEMINI)
+            items = handler.list_items()
+            self.assertEqual(items[0][1], AGENT_GEMINI)
+            self.assertEqual(items[1][1], AGENT_ANTIGRAVITY)
 
 
 class TestAntigravityClientBuildCmd(unittest.TestCase):

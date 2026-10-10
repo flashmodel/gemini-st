@@ -42,6 +42,23 @@ def _find_gemini_cli():
     return None
 
 
+def find_gemini_cli(custom_command=None):
+    """Search PATH and common default locations for the gemini CLI,
+    or validate a custom command path.
+    """
+    if custom_command:
+        cmd = os.path.expanduser(custom_command.strip())
+        if cmd and cmd != "gemini":
+            if os.path.isabs(cmd):
+                return cmd if (os.path.isfile(cmd) and os.access(cmd, os.X_OK)) else None
+            return shutil.which(cmd)
+
+    which_gemini = shutil.which("gemini")
+    if which_gemini:
+        return which_gemini
+    return _find_gemini_cli()
+
+
 class ErrorCode:
     AuthRequired = -32000
     InternalError = -32603
@@ -122,8 +139,7 @@ class GeminiClient:
         ).start()
 
     def _start_thread(self, api_key, gemini_command, extra_env):
-        if not gemini_command:
-            gemini_command = shutil.which("gemini") or _find_gemini_cli()
+        gemini_command = find_gemini_cli(gemini_command)
 
         if not gemini_command:
             self.callbacks['on_error'](

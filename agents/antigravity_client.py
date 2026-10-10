@@ -16,8 +16,17 @@ except ImportError:
 LOG = logging.getLogger(__package__)
 
 
-def find_antigravity_cli():
-    """Search PATH and common default install locations for the agy/antigravity CLI."""
+def find_antigravity_cli(custom_command=None):
+    """Search PATH and common default locations for the agy/antigravity CLI,
+    or validate a custom command path.
+    """
+    if custom_command:
+        cmd = os.path.expanduser(custom_command.strip())
+        if cmd and cmd not in ("agy", "antigravity"):
+            if os.path.isabs(cmd):
+                return cmd if (os.path.isfile(cmd) and os.access(cmd, os.X_OK)) else None
+            return shutil.which(cmd)
+
     which_agy = shutil.which("agy")
     if which_agy:
         return which_agy
@@ -503,9 +512,7 @@ class AntigravityClient:
         ).start()
 
     def _fetch_models(self, agent_command=None, extra_env=None):
-        cli = agent_command
-        if not cli:
-            cli = find_antigravity_cli() or "agy"
+        cli = agent_command or find_antigravity_cli() or "agy"
 
         resolved_cli = shutil.which(cli) or cli
         if not os.path.isabs(resolved_cli) and not shutil.which(resolved_cli):
@@ -561,9 +568,7 @@ class AntigravityClient:
         ).start()
 
     def _build_cmd(self, agent_command=None, extra_env=None):
-        cli = agent_command
-        if not cli:
-            cli = find_antigravity_cli() or "agy"
+        cli = agent_command or find_antigravity_cli() or "agy"
 
         cmd = [
             cli,
