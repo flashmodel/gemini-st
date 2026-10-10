@@ -49,12 +49,15 @@ You can authenticate using either your **Google Account (OAuth)** or a **Gemini 
   agy
   ```
   the CLI automatically launches your default web browser to complete Google account sign-in.
-- **Gemini API Key**: If you prefer using an API key, set custom env in `Preferences -> Package Settings -> GeminiCLI -> Settings`:
+- **Gemini API Key**: If you prefer using API key, configure `~/.gemini/antigravity-cli/settings.json` with
+  `"modelProvider": "gemini"`, then set your API key in `Preferences -> Package Settings -> GeminiCLI -> Settings`:
+
   ```json
   "env": {
       "GEMINI_API_KEY": "your-api-key-here"
   }
   ```
+
 - **Google Vertex AI (geminicli)**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` setting:
   ```json
   "env": {
