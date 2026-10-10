@@ -109,7 +109,7 @@ Gemini CLI performs various actions (tools) like reading files, searching the we
 
 **Switch Agent Provider**
 
-Use the command palette (`Gemini: Switch Agent`) to toggle between **Gemini CLI** and **Antigravity** (`agy` / `antigravity`). When switched, your active chat session seamlessly resets and connects to the selected agent provider.
+Use the command palette (`Gemini: Agent`) to toggle between **Gemini CLI** and **Antigravity** (`agy` / `antigravity`). When switched, your active chat session seamlessly resets and connects to the selected agent provider.
 
 **Clear Session**
 
