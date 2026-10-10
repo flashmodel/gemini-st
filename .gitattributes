@@ -1,2 +1,5 @@
 screenshot.png export-ignore
 .gitignore export-ignore
+
+# Tests and development assets
+tests/ export-ignore
