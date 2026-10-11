@@ -45,26 +45,33 @@ The plugin automatically detects antigravity and geminicli. If your CLI binaries
 You can authenticate using either your **Google Account (OAuth)** or a **Gemini API Key**:
 
 - **Google Account OAuth**: Run `agy` in your terminal:
-  ```bash
-  agy
-  ```
-  the CLI automatically launches your default web browser to complete Google account sign-in.
-- **Gemini API Key**: If you prefer using API key, configure `~/.gemini/antigravity-cli/settings.json` with
-  `"modelProvider": "gemini"`, then set your API key in `Preferences -> Package Settings -> GeminiCLI -> Settings`:
 
-  ```json
-  "env": {
-      "GEMINI_API_KEY": "your-api-key-here"
-  }
-  ```
+    ```bash
+    agy
+    ```
 
-- **Google Vertex AI (geminicli)**: If you're using Vertex AI on Google Cloud, configure your project and location in the `env` setting:
-  ```json
-  "env": {
-      "GOOGLE_CLOUD_PROJECT": "your-project-id",
-      "GOOGLE_CLOUD_LOCATION": "us-central1"
-  }
-  ```
+  The CLI automatically launches your default web browser to complete Google account sign-in.
+
+- **Gemini API Key**: If you prefer using an API key, configure
+  `~/.gemini/antigravity-cli/settings.json` with `"modelProvider": "gemini"`, then set your
+  API key in `Preferences -> Package Settings -> GeminiCLI -> Settings`:
+
+    ```json
+    "env": {
+        "GEMINI_API_KEY": "your-api-key-here"
+    }
+    ```
+
+- **Google Vertex AI (geminicli)**: If you're using Vertex AI on Google Cloud, configure your
+  project and location in the `env` setting:
+
+    ```json
+    "env": {
+        "GOOGLE_CLOUD_PROJECT": "your-project-id",
+        "GOOGLE_CLOUD_LOCATION": "us-central1"
+    }
+    ```
+
   Ensure you have authenticated via `gcloud auth application-default login`.
 
 ## Start Gemini Chat
@@ -128,21 +135,22 @@ In the Gemini chat view, you can use the **Up** and **Down** arrow keys to scrol
 
 This package does not include a global shortcut by default. You can add key bindings manually:
 
-1.  Go to `Preferences -> Key Bindings`.
-2.  Add the following lines to your user keymap file:
-3. Now you can use the shortcut `Primary+Alt+G` to start Gemini Chat (maps to `Ctrl+Alt+G` on Windows/Linux and `Super+Alt+G` on Mac).
+1. Go to `Preferences -> Key Bindings`.
+2. Add the following lines to your user keymap file:
 
-```json
-[
-    {
-        "keys": ["primary+alt+g"],
-        "command": "gemini_cli",
-        "context": [
-            { "key": "is_widget", "operand": false }
-        ]
-    }
-]
-```
+   ```json
+   [
+       {
+           "keys": ["primary+alt+g"],
+           "command": "gemini_cli",
+           "context": [
+               { "key": "is_widget", "operand": false }
+           ]
+       }
+   ]
+   ```
+
+3. Now you can use the shortcut `Primary+Alt+G` to start Gemini Chat (maps to `Ctrl+Alt+G` on Windows/Linux and `Super+Alt+G` on Mac).
 
 ## Manual Installation from github
 
