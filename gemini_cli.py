@@ -387,7 +387,7 @@ class InputPromptMarker:
     """Render the live ❯ prompt without storing it in the chat buffer."""
     HTML = (
         "<body id='gemini-input-marker' style='margin:0;padding:0'>"
-        "<span style='color:var(--foreground);padding-right:0.2em'>❯</span>"
+        "<span style='color:var(--foreground);font-size:0.95em;padding-right:0em'>❯</span>"
         "</body>"
     )
 
