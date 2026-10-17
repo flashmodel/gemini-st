@@ -2640,7 +2640,8 @@ class GeminiResumeSessionCommand(sublime_plugin.WindowCommand):
             summary = s["summary"] or "(empty)"
             if len(summary) > self._PREVIEW_LEN:
                 summary = summary[:self._PREVIEW_LEN] + "…"
-            dt = datetime.datetime.fromtimestamp(s["mtime"]).strftime("%Y-%m-%d %H:%M") if s.get("mtime") else ""
+            mtime = s.get("mtime")
+            dt = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
             base_title = f"{dt}  [{sid[:8]}]".strip() if dt else f"[{sid[:8]}]"
             title = f"{base_title}\t⦿" if sid == current_session_id else base_title
             items.append([title, summary])

@@ -32,7 +32,12 @@ if "sublime_plugin" not in sys.modules:
     mock_sublime_plugin.TextInputHandler = _DummyInputHandler
     sys.modules["sublime_plugin"] = mock_sublime_plugin
 
-from agents.antigravity_client import AntigravityClient, find_antigravity_cli
+from agents.antigravity_client import (
+    AntigravityClient,
+    find_antigravity_cli,
+    list_antigravity_sessions,
+    _is_workspace_match,
+)
 from agents.gemini_client import find_gemini_cli
 from GeminiCLI.gemini_cli import (
     get_current_agent,
@@ -470,6 +475,92 @@ gpt-oss-120b-medium\tGPT-OSS 120B (Medium)
         _, cmd_default = client_default._build_cmd(agent_command="/bin/agy")
         self.assertNotIn("--model", cmd_default)
         self.assertNotIn("--effort", cmd_default)
+
+
+class TestWorkspaceMatching(unittest.TestCase):
+    def test_exact_match(self):
+        self.assertTrue(_is_workspace_match("/path/to/project", "/path/to/project"))
+
+    def test_cwd_inside_workspace(self):
+        self.assertTrue(_is_workspace_match("/path/to", "/path/to/project/sub"))
+
+    def test_workspace_inside_cwd(self):
+        self.assertTrue(_is_workspace_match("/path/to/project/sub", "/path/to/project"))
+
+    def test_unrelated_paths(self):
+        self.assertFalse(_is_workspace_match("/path/to/projectA", "/path/to/projectB"))
+
+    def test_empty_or_none(self):
+        self.assertFalse(_is_workspace_match(None, "/path/to/project"))
+        self.assertFalse(_is_workspace_match("/path/to/project", None))
+        self.assertFalse(_is_workspace_match("", ""))
+
+
+class TestListAntigravitySessions(unittest.TestCase):
+    @patch("agents.antigravity_client._get_base_dir")
+    def test_multi_root_workspace_matching(self, mock_base_dir):
+        import tempfile
+        import json
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_base_dir.return_value = tmp_dir
+            cache_dir = os.path.join(tmp_dir, "cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            meta_path = os.path.join(cache_dir, "conversation_metadata.json")
+
+            ws_alpha = "/workspace/project-alpha"
+            ws_beta = "/workspace/project-beta"
+            ws_gamma = "/workspace/project-gamma"
+            ws_unrelated = "/workspace/other-project"
+
+            data = {
+                "conversations": {
+                    "sess-1": {
+                        "summary": {
+                            "ID": "sess-1",
+                            "Title": "Multi Root Project Work",
+                            "NumSteps": 5,
+                            "UpdatedAt": "2026-10-16T15:00:00Z",
+                            "WorkspaceURIs": [
+                                f"file://{ws_alpha}",
+                                f"file://{ws_beta}",
+                                f"file://{ws_gamma}",
+                            ],
+                        }
+                    },
+                    "sess-empty": {
+                        "summary": {
+                            "ID": "sess-empty",
+                            "Title": "Empty Session",
+                            "NumSteps": 0,
+                            "UpdatedAt": "2026-10-16T15:00:00Z",
+                            "WorkspaceURIs": [f"file://{ws_beta}"],
+                        }
+                    },
+                }
+            }
+            with open(meta_path, "w") as f:
+                json.dump(data, f)
+
+            # Query with second workspace in list: ws_beta
+            results_beta = list_antigravity_sessions(ws_beta)
+            self.assertEqual(len(results_beta), 1)
+            self.assertEqual(results_beta[0]["session_id"], "sess-1")
+            self.assertEqual(results_beta[0]["summary"], "Multi Root Project Work")
+            self.assertEqual(results_beta[0]["steps"], 5)
+
+            # Query with third workspace: ws_gamma
+            results_gamma = list_antigravity_sessions(ws_gamma)
+            self.assertEqual(len(results_gamma), 1)
+            self.assertEqual(results_gamma[0]["session_id"], "sess-1")
+
+            # Query with unrelated workspace: should be empty
+            results_unrelated = list_antigravity_sessions(ws_unrelated)
+            self.assertEqual(len(results_unrelated), 0)
+
+            # Query with None (all): returns sess-1, skips sess-empty (0 steps)
+            results_all = list_antigravity_sessions(None)
+            self.assertEqual(len(results_all), 1)
+            self.assertEqual(results_all[0]["session_id"], "sess-1")
 
 
 if __name__ == "__main__":
