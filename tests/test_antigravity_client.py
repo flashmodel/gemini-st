@@ -37,6 +37,7 @@ from agents.antigravity_client import (
     find_antigravity_cli,
     list_antigravity_sessions,
     _is_workspace_match,
+    _read_transcript_summary_and_mtime,
 )
 from agents.gemini_client import find_gemini_cli
 from GeminiCLI.gemini_cli import (
@@ -561,6 +562,33 @@ class TestListAntigravitySessions(unittest.TestCase):
             results_all = list_antigravity_sessions(None)
             self.assertEqual(len(results_all), 1)
             self.assertEqual(results_all[0]["session_id"], "sess-1")
+
+    @patch("agents.antigravity_client._get_base_dir")
+    def test_read_transcript_summary_and_mtime_direct(self, mock_base_dir):
+        import tempfile
+        import json
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_base_dir.return_value = tmp_dir
+            cid = "sess-direct-1"
+
+            # When transcript does not exist
+            summary, mtime = _read_transcript_summary_and_mtime(cid)
+            self.assertEqual(summary, "")
+            self.assertEqual(mtime, 0.0)
+
+            # When transcript exists with user input
+            log_dir = os.path.join(tmp_dir, "brain", cid, ".system_generated", "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            t_path = os.path.join(log_dir, "transcript_full.jsonl")
+            with open(t_path, "w") as f:
+                f.write(json.dumps({
+                    "type": "USER_INPUT",
+                    "content": "Optimize search index query",
+                }) + "\n")
+
+            summary, mtime = _read_transcript_summary_and_mtime(cid)
+            self.assertEqual(summary, "Optimize search index query")
+            self.assertGreater(mtime, 0.0)
 
 
 if __name__ == "__main__":

@@ -150,6 +150,43 @@ def _is_workspace_match(ws_path, norm_cwd):
     )
 
 
+def _read_transcript_summary_and_mtime(session_id):
+    """
+    Read first valid USER_INPUT prompt and file mtime from brain transcript logs.
+    Returns: (summary: str, mtime: float)
+    """
+    for t_path in _get_transcript_paths(session_id):
+        if not os.path.isfile(t_path):
+            continue
+        try:
+            mtime = os.path.getmtime(t_path)
+        except OSError:
+            mtime = 0.0
+
+        summary = ""
+        try:
+            with open(t_path, "r", encoding="utf-8", errors="replace") as f:
+                for idx, line in enumerate(f):
+                    if idx > 15:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    if rec.get("type") == "USER_INPUT":
+                        cleaned = _clean_antigravity_prompt(rec.get("content") or "")
+                        if cleaned and not cleaned.startswith("/"):
+                            summary = cleaned
+                            break
+        except Exception:
+            pass
+        return summary, mtime
+    return "", 0.0
+
+
 def list_antigravity_sessions(cwd=None):
     """
     List past Antigravity conversations from ~/.gemini/antigravity-cli cache, brain, and history.
@@ -159,7 +196,6 @@ def list_antigravity_sessions(cwd=None):
     from urllib.parse import urlparse, unquote
 
     base_dir = _get_base_dir()
-    brain_dir = os.path.join(base_dir, "brain")
     history_file = _get_history_file()
     last_conv_file = os.path.join(base_dir, "cache", "last_conversations.json")
     meta_file = os.path.join(base_dir, "cache", "conversation_metadata.json")
@@ -268,74 +304,14 @@ def list_antigravity_sessions(cwd=None):
         except Exception as e:
             LOG.debug(f"Error reading last conversations: {e}")
 
-    # 4. Fast shallow fallback: scan brain/ for sessions missing summary or mtime
-    if os.path.isdir(brain_dir):
-        try:
-            for entry in os.scandir(brain_dir):
-                if not entry.is_dir():
-                    continue
-                cid = entry.name
-                existing = sessions_by_id.get(cid)
-                if existing and existing.get("summary") and existing.get("mtime", 0) > 0:
-                    continue
-
-                t_path = os.path.join(
-                    entry.path, ".system_generated", "logs", "transcript_full.jsonl"
-                )
-                if not os.path.isfile(t_path):
-                    t_path = os.path.join(
-                        entry.path, ".system_generated", "logs", "transcript.jsonl"
-                    )
-                if not os.path.isfile(t_path):
-                    continue
-
-                try:
-                    mtime = os.path.getmtime(t_path)
-                except OSError:
-                    mtime = 0.0
-
-                summary = ""
-                cmd_fallback = ""
-                try:
-                    with open(t_path, "r", encoding="utf-8", errors="replace") as f:
-                        for idx, line in enumerate(f):
-                            if idx > 15 and (summary or cmd_fallback):
-                                break
-                            line = line.strip()
-                            if not line:
-                                continue
-                            try:
-                                rec = json.loads(line)
-                            except Exception:
-                                continue
-
-                            if rec.get("type") == "USER_INPUT" and not summary:
-                                cleaned = _clean_antigravity_prompt(rec.get("content") or "")
-                                if cleaned:
-                                    if cleaned.startswith("/"):
-                                        if not cmd_fallback:
-                                            cmd_fallback = cleaned
-                                    else:
-                                        summary = cleaned
-                except Exception:
-                    pass
-
-                final_summary = summary or cmd_fallback
-                if existing:
-                    if not existing["summary"]:
-                        existing["summary"] = final_summary
-                    if existing["mtime"] <= 0 and mtime > 0:
-                        existing["mtime"] = mtime
-                elif final_summary:
-                    sessions_by_id[cid] = {
-                        "session_id": cid,
-                        "summary": final_summary,
-                        "mtime": mtime,
-                        "workspaces": set(),
-                        "steps": 0,
-                    }
-        except Exception as e:
-            LOG.warning(f"Failed to scan antigravity brain dir: {e}")
+    # 4. Fast targeted fallback: only backfill sessions missing summary or mtime
+    for cid, s in sessions_by_id.items():
+        if not s.get("summary") or s.get("mtime", 0) <= 0:
+            fb_summary, fb_mtime = _read_transcript_summary_and_mtime(cid)
+            if not s.get("summary") and fb_summary:
+                s["summary"] = fb_summary
+            if s.get("mtime", 0) <= 0 and fb_mtime > 0:
+                s["mtime"] = fb_mtime
 
     # 5. Filter by cwd if requested
     results = []
