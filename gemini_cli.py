@@ -2641,10 +2641,13 @@ class GeminiResumeSessionCommand(sublime_plugin.WindowCommand):
             if len(summary) > self._PREVIEW_LEN:
                 summary = summary[:self._PREVIEW_LEN] + "…"
             mtime = s.get("mtime")
-            dt = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else ""
-            base_title = f"{dt}  [{sid[:8]}]".strip() if dt else f"[{sid[:8]}]"
-            title = f"{base_title}\t⦿" if sid == current_session_id else base_title
-            items.append([title, summary])
+            dt = ""
+            if mtime:
+                dt = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+            meta = f"{dt}  [{sid[:8]}]".strip() if dt else f"[{sid[:8]}]"
+            if sid == current_session_id:
+                meta = f"{meta}  ⦿"
+            items.append([summary, meta])
 
         def on_select(index):
             if index < 0:
