@@ -9,7 +9,6 @@ import os
 import signal
 import re
 import datetime
-import calendar
 try:
     import sublime
 except ImportError:
@@ -125,15 +124,11 @@ def _clean_antigravity_prompt(content):
 
 def _parse_iso_timestamp(ts_str):
     """Parse ISO-8601 UTC timestamp to unix epoch float."""
-    if not ts_str or not isinstance(ts_str, str):
-        return 0.0
     try:
-        clean = ts_str.split(".")[0].rstrip("Z")
-        if "T" in clean:
-            dt = datetime.datetime.strptime(clean, "%Y-%m-%dT%H:%M:%S")
-        else:
-            dt = datetime.datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
-        return float(calendar.timegm(dt.utctimetuple()))
+        norm = ts_str.replace("Z", "+00:00")
+        s = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(6, "0")[:6], norm)
+        dt = datetime.datetime.fromisoformat(s)
+        return float(dt.timestamp()) if dt.year > 1 else 0.0
     except Exception:
         return 0.0
 
@@ -268,7 +263,7 @@ def list_antigravity_sessions(cwd=None):
                             curr["workspaces"].add(ws)
                         if not curr.get("summary") and cleaned and not cleaned.startswith("/"):
                             curr["summary"] = cleaned
-                        if curr.get("mtime", 0) <= 0 and mtime > 0:
+                        if mtime > curr.get("mtime", 0.0):
                             curr["mtime"] = mtime
                     else:
                         is_slash = cleaned.startswith("/")
@@ -304,14 +299,24 @@ def list_antigravity_sessions(cwd=None):
         except Exception as e:
             LOG.debug(f"Error reading last conversations: {e}")
 
-    # 4. Fast targeted fallback: only backfill sessions missing summary or mtime
+    # 4. Fast targeted fallback & transcript mtime calibration
     for cid, s in sessions_by_id.items():
-        if not s.get("summary") or s.get("mtime", 0) <= 0:
+        if not s.get("summary"):
             fb_summary, fb_mtime = _read_transcript_summary_and_mtime(cid)
-            if not s.get("summary") and fb_summary:
+            if fb_summary:
                 s["summary"] = fb_summary
-            if s.get("mtime", 0) <= 0 and fb_mtime > 0:
+            if fb_mtime > s.get("mtime", 0.0):
                 s["mtime"] = fb_mtime
+        else:
+            for t_path in _get_transcript_paths(cid):
+                if os.path.isfile(t_path):
+                    try:
+                        mt = os.path.getmtime(t_path)
+                        if mt > s.get("mtime", 0.0):
+                            s["mtime"] = mt
+                    except OSError:
+                        pass
+                    break
 
     # 5. Filter by cwd if requested
     results = []
