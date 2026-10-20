@@ -348,6 +348,64 @@ class TestAntigravityClientEvents(unittest.TestCase):
         self.assertEqual(update["kind"], "edit")
         self.assertEqual(update["title"], "/path/to/code.py")
 
+    def test_tool_event_read_file_with_path_and_lines(self):
+        event = {
+            "event": "step_update",
+            "step_type": "tool",
+            "state": "ACTIVE",
+            "step_index": 3,
+            "tool_call": {
+                "id": "tc-3",
+                "name": "read_file",
+                "parameters": {
+                    "Path": "/path/to/file.py",
+                    "StartLine": 30,
+                    "EndLine": 120,
+                }
+            }
+        }
+        self.client._handle_event(event)
+        update = self.callbacks["on_tool_call"].call_args[0][0]
+        self.assertEqual(update["kind"], "read")
+        self.assertEqual(update["title"], "/path/to/file.py#L30-L120")
+
+    def test_tool_event_read_file_with_path_and_start_line(self):
+        event = {
+            "event": "step_update",
+            "step_type": "tool",
+            "state": "ACTIVE",
+            "step_index": 4,
+            "tool_call": {
+                "id": "tc-4",
+                "name": "read_file",
+                "parameters": {
+                    "Path": "/path/to/file.py",
+                    "StartLine": 50,
+                }
+            }
+        }
+        self.client._handle_event(event)
+        update = self.callbacks["on_tool_call"].call_args[0][0]
+        self.assertEqual(update["kind"], "read")
+        self.assertEqual(update["title"], "/path/to/file.py#L50")
+
+    def test_tool_event_edit_file_with_path(self):
+        event = {
+            "event": "step_update",
+            "step_type": "tool",
+            "state": "ACTIVE",
+            "step_index": 5,
+            "tool_call": {
+                "id": "tc-5",
+                "name": "edit_file",
+                "parameters": {"Path": "/path/to/edit.py"}
+            }
+        }
+        self.client._handle_event(event)
+        update = self.callbacks["on_tool_call"].call_args[0][0]
+        self.assertEqual(update["kind"], "edit")
+        self.assertEqual(update["title"], "/path/to/edit.py")
+
     def test_result_event_success(self):
         self.client.current_msg_id = 42
         event = {

@@ -141,9 +141,11 @@ def classify_artifact(file_path, metadata=None):
 
 def is_user_artifact_tool_call(tool_name, params):
     """Check if a tool call creates or modifies an artifact."""
-    if tool_name not in ("write_to_file", "replace_file_content", "edit_file", "create_file"):
+    if tool_name not in (
+        "write_to_file", "write_file", "replace_file_content", "edit_file", "create_file"
+    ):
         return False
-    target = params.get("TargetFile") or params.get("file_path") or params.get("path") or ""
+    target = params.get("TargetFile") or params.get("Path") or ""
     meta = params.get("ArtifactMetadata") or {}
     if meta.get("RequestFeedback") is True or meta.get("UserFacing") is True:
         return True
@@ -203,7 +205,7 @@ class AntigravityArtifactManager:
         if not is_user_artifact_tool_call(tool_name, params):
             return
 
-        target = params.get("TargetFile") or params.get("file_path") or params.get("path") or ""
+        target = params.get("TargetFile") or params.get("Path") or ""
         if not target:
             return
 

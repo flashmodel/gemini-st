@@ -857,12 +857,23 @@ class AntigravityClient:
                     tool_kind = "execute"
                     cmd_val = params.get("CommandLine") or params.get("command") or ""
                     tool_title = cmd_val
-                elif tool_name in ("write_to_file", "replace_file_content", "edit_file"):
+                elif tool_name in (
+                    "write_to_file", "write_file", "replace_file_content",
+                    "multi_replace_file_content", "edit_file"
+                ):
                     tool_kind = "edit"
-                    tool_title = params.get("TargetFile") or params.get("file_path") or ""
+                    tool_title = params.get("TargetFile") or params.get("Path") or ""
                 elif tool_name in ("view_file", "read_file"):
                     tool_kind = "read"
-                    tool_title = params.get("AbsolutePath") or params.get("file_path") or ""
+                    file_path = params.get("Path") or params.get("AbsolutePath") or ""
+                    start_line = params.get("StartLine")
+                    end_line = params.get("EndLine")
+                    if file_path and start_line is not None and end_line is not None:
+                        tool_title = f"{file_path}#L{start_line}-L{end_line}"
+                    elif file_path and start_line is not None:
+                        tool_title = f"{file_path}#L{start_line}"
+                    else:
+                        tool_title = file_path
                 elif tool_name in ("grep_search", "find_by_name", "list_dir"):
                     tool_kind = "search"
                     query_val = params.get("Query") or params.get("Pattern") or params.get("DirectoryPath") or ""
@@ -885,9 +896,24 @@ class AntigravityClient:
             err_msg = result.get("error") or ""
 
             if status == "ERROR" and not self._interrupted:
-                # If a response was already received and the error is just trailing EOF, suppress it
-                is_trailing_eof = bool(result.get("response") and "eof" in err_msg.lower())
-                if not is_trailing_eof and err_msg and "context canceled" not in err_msg.lower():
+                err_lower = err_msg.lower()
+                is_ignorable = (
+                    "context canceled" in err_lower
+                    or "stream was interrupted" in err_lower
+                    or bool(
+                        result.get("response")
+                        and any(
+                            term in err_lower
+                            for term in (
+                                "eof",
+                                "closed network connection",
+                                "connection reset",
+                                "broken pipe",
+                            )
+                        )
+                    )
+                )
+                if err_msg and not is_ignorable:
                     self.callbacks['on_error'](err_msg)
 
             stop_reason = "cancelled" if self._interrupted else "end_turn"

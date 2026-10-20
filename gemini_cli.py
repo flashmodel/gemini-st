@@ -958,18 +958,26 @@ class ChatSession:
                 params = {}
 
         # Normalize file tool kinds and target file paths
-        if tool_kind == "tool" and tool_name:
+        if (tool_kind == "tool" or not tool_title or tool_title == tool_name) and tool_name:
             if tool_name in ("view_file", "read_file", "Read", "ViewFile"):
                 tool_kind = "read"
                 if not tool_title or tool_title == tool_name:
-                    tool_title = params.get("AbsolutePath") or params.get("TargetFile") or params.get("file_path") or ""
+                    file_path = params.get("Path") or params.get("AbsolutePath") or ""
+                    start_line = params.get("StartLine")
+                    end_line = params.get("EndLine")
+                    if file_path and start_line is not None and end_line is not None:
+                        tool_title = f"{file_path}#L{start_line}-L{end_line}"
+                    elif file_path and start_line is not None:
+                        tool_title = f"{file_path}#L{start_line}"
+                    else:
+                        tool_title = file_path
             elif tool_name in (
-                "write_to_file", "replace_file_content", "edit_file",
-                "Edit", "Write", "WriteFile", "EditFile"
+                "write_to_file", "write_file", "replace_file_content", "edit_file",
+                "multi_replace_file_content", "Edit", "Write", "WriteFile", "EditFile"
             ):
                 tool_kind = "edit"
                 if not tool_title or tool_title == tool_name:
-                    tool_title = params.get("TargetFile") or params.get("AbsolutePath") or params.get("file_path") or ""
+                    tool_title = params.get("TargetFile") or params.get("Path") or ""
 
         if tool_kind == "execute" and tool_title:
             # Remove content within [ ] from the execution title
