@@ -978,12 +978,22 @@ class ChatSession:
                 tool_kind = "edit"
                 if not tool_title or tool_title == tool_name:
                     tool_title = params.get("TargetFile") or params.get("Path") or ""
+            elif tool_name == "search_web":
+                tool_kind = "SearchWeb"
+                if not tool_title or tool_title == tool_name:
+                    query = params.get("query", "")
+                    tool_title = f"({query})" if query else ""
 
         if tool_kind == "execute" and tool_title:
             # Remove content within [ ] from the execution title
             tool_title = re.sub(r'\s*\[.*?\]', '', tool_title)
 
-        formatted_title = f"⏺ {tool_kind.capitalize()}"
+        display_kind = {
+            "search_web": "SearchWeb",
+            "SearchWeb": "SearchWeb",
+        }.get(tool_kind, tool_kind.capitalize())
+
+        formatted_title = f"⏺ {display_kind}"
         if tool_title:
             if "\n" in tool_title:
                 title_lines = tool_title.split("\n", 1)
@@ -991,9 +1001,9 @@ class ChatSession:
                 rest_of_code = title_lines[1] if len(title_lines) > 1 else ""
                 # Indent the rest of the code by 4 spaces to use Markdown's indent-based code block
                 indented_code = "\n".join("    " + l for l in rest_of_code.split("\n"))
-                formatted_title = f"⏺ {tool_kind.capitalize()} {first_line}\n\n{indented_code}"
+                formatted_title = f"⏺ {display_kind} {first_line}\n\n{indented_code}"
             else:
-                formatted_title = f"⏺ {tool_kind.capitalize()} {tool_title}"
+                formatted_title = f"⏺ {display_kind} {tool_title}"
 
         # Determine prefix based on previous output type
         view = self.chat_view

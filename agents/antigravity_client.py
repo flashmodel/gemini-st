@@ -876,8 +876,17 @@ class AntigravityClient:
                         tool_title = file_path
                 elif tool_name in ("grep_search", "find_by_name", "list_dir"):
                     tool_kind = "search"
-                    query_val = params.get("Query") or params.get("Pattern") or params.get("DirectoryPath") or ""
+                    query_val = (
+                        params.get("Query")
+                        or params.get("Pattern")
+                        or params.get("DirectoryPath")
+                        or ""
+                    )
                     tool_title = f"{tool_name} {query_val}".strip()
+                elif tool_name == "search_web":
+                    tool_kind = "SearchWeb"
+                    query = params.get("query", "")
+                    tool_title = f"({query})" if query else ""
 
                 tool_id = str(tool_call.get("id") or step_index or self._next_message_id())
                 tool_update = {

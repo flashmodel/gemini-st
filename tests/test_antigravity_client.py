@@ -406,6 +406,32 @@ class TestAntigravityClientEvents(unittest.TestCase):
         self.assertEqual(update["kind"], "edit")
         self.assertEqual(update["title"], "/path/to/edit.py")
 
+    def test_tool_event_search_web_from_tool_info(self):
+        event = {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "f5203366-e014-4736-b9bd-3aae75ce706d",
+                "step_index": 127,
+                "state": "ACTIVE",
+                "step_type": "tool",
+                "tool_name": "search_web",
+                "tool_info": {
+                    "name": "search_web",
+                    "parameters": {
+                        "query": '"unmanaged_packages_ignore" "package control" sublime'
+                    }
+                }
+            }
+        }
+        self.client._handle_event(event)
+        update = self.callbacks["on_tool_call"].call_args[0][0]
+        self.assertEqual(update["kind"], "SearchWeb")
+        self.assertEqual(
+            update["title"],
+            '("unmanaged_packages_ignore" "package control" sublime)'
+        )
+        self.assertEqual(update["status"], "in_progress")
+
     def test_result_event_success(self):
         self.client.current_msg_id = 42
         event = {
